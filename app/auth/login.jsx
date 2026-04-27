@@ -1,3 +1,8 @@
+// Firebase Authentication imports
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../../firebase/firebaseConfig";
+
+
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
@@ -23,7 +28,8 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleLogin = () => {
+  // Handle user login with Firebase
+  const handleLogin = async() => {
     Keyboard.dismiss();
     setError("");
 
@@ -31,9 +37,18 @@ export default function Login() {
       setError("Please enter your email and password.");
       return;
     }
-
-    router.push("/main/home");
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      
+      // Navigate to home screen after successful login
+      router.push("/main/home");
+    } catch (error) {
+    setError("Login failed. Please check your email and password.");
+    }
   };
+
+    
+  
 
   return (
     <KeyboardAvoidingView

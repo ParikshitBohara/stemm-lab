@@ -1,3 +1,6 @@
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../../firebase/firebaseConfig";
+
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
@@ -25,6 +28,8 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  
+  
 
   const validatePassword = (value) => {
     const minLength = value.length >= 8;
@@ -34,7 +39,7 @@ export default function Register() {
     return minLength && hasUppercase && hasNumber;
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     Keyboard.dismiss();
     setError("");
 
@@ -54,8 +59,12 @@ export default function Register() {
       setError("Passwords do not match.");
       return;
     }
-
-    router.replace("/main/team-setup");
+    try{
+      await createUserWithEmailAndPassword(auth,email.trim(),password);
+      router.replace("/main/team-setup");
+    } catch(error) {
+      setError("Registration failed. Email may already be in use.");
+    }
   };
 
   return (
@@ -64,7 +73,10 @@ export default function Register() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <StatusBar style="dark" />
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <TouchableWithoutFeedback 
+        onPress={Keyboard.dismiss}
+        accessible={false}
+      >
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
