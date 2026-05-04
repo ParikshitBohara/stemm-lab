@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, Image, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 
+
 export default function Index() {
   const router = useRouter();
 
@@ -17,6 +18,7 @@ export default function Index() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
+
       <View style={styles.orbOne} />
       <View style={styles.orbTwo} />
 
@@ -29,7 +31,10 @@ export default function Index() {
       </View>
 
       <Text style={styles.title}>STEMM Lab</Text>
-      <Text style={styles.subtitle}>Real-world science challenges for curious teams.</Text>
+      <Text style={styles.subtitle}>
+        Real-world science challenges for curious teams.
+      </Text>
+
       <ActivityIndicator size="large" color="#f0ff75" style={styles.loader} />
     </View>
   );
