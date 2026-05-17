@@ -42,6 +42,14 @@ const instructions = [
   "Write a reflection about what helped or made the challenge harder.",
 ];
 
+const getAverageTime = (attempts) =>
+  attempts.length > 0
+    ? Math.round(
+        attempts.reduce((total, attempt) => total + attempt, 0) /
+          attempts.length,
+      )
+    : null;
+
 export default function ReactionBoardChallenge() {
   const [currentStep, setCurrentStep] = useState(0);
   const [tapReactionStatus, setTapReactionStatus] = useState("");
@@ -50,6 +58,12 @@ export default function ReactionBoardChallenge() {
   const [isTargetVisible, setIsTargetVisible] = useState(false);
   const [tapMessage, setTapMessage] = useState("");
   const [swapHandsStatus, setSwapHandsStatus] = useState("");
+  const [swapHandMode, setSwapHandMode] = useState("dominant");
+  const [dominantHandAttempts, setDominantHandAttempts] = useState([]);
+  const [nonDominantHandAttempts, setNonDominantHandAttempts] = useState([]);
+  const [isSwapWaiting, setIsSwapWaiting] = useState(false);
+  const [isSwapTargetVisible, setIsSwapTargetVisible] = useState(false);
+  const [swapMessage, setSwapMessage] = useState("");
   const [tracingStatus, setTracingStatus] = useState("");
   const [bestPhase, setBestPhase] = useState("");
   const [hardestPhase, setHardestPhase] = useState("");
@@ -57,20 +71,28 @@ export default function ReactionBoardChallenge() {
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const reactionTimerRef = useRef(null);
+  const swapTimerRef = useRef(null);
   const targetShownAtRef = useRef(null);
+  const swapTargetShownAtRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
   const bestTapTime =
     tapAttempts.length > 0 ? Math.min(...tapAttempts) : null;
-  const averageTapTime =
-    tapAttempts.length > 0
-      ? Math.round(
-          tapAttempts.reduce((total, attempt) => total + attempt, 0) /
-            tapAttempts.length,
-        )
+  const averageTapTime = getAverageTime(tapAttempts);
+  const dominantAverageTime = getAverageTime(dominantHandAttempts);
+  const nonDominantAverageTime = getAverageTime(nonDominantHandAttempts);
+  const swapDifference =
+    dominantAverageTime !== null && nonDominantAverageTime !== null
+      ? Math.abs(nonDominantAverageTime - dominantAverageTime)
       : null;
+  const selectedSwapAttempts =
+    swapHandMode === "dominant"
+      ? dominantHandAttempts
+      : nonDominantHandAttempts;
+  const selectedHandLabel =
+    swapHandMode === "dominant" ? "Dominant hand" : "Non-dominant hand";
 
   const clearReactionTimer = () => {
     if (reactionTimerRef.current) {
@@ -79,25 +101,39 @@ export default function ReactionBoardChallenge() {
     }
   };
 
+  const clearSwapTimer = () => {
+    if (swapTimerRef.current) {
+      clearTimeout(swapTimerRef.current);
+      swapTimerRef.current = null;
+    }
+  };
+
   useEffect(() => {
     return () => {
       clearReactionTimer();
+      clearSwapTimer();
     };
   }, []);
 
   const goBack = () => {
     Keyboard.dismiss();
     clearReactionTimer();
+    clearSwapTimer();
     setIsTapWaiting(false);
     setIsTargetVisible(false);
+    setIsSwapWaiting(false);
+    setIsSwapTargetVisible(false);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
   const goNext = () => {
     Keyboard.dismiss();
     clearReactionTimer();
+    clearSwapTimer();
     setIsTapWaiting(false);
     setIsTargetVisible(false);
+    setIsSwapWaiting(false);
+    setIsSwapTargetVisible(false);
     setSuccessMessage("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
@@ -164,6 +200,102 @@ export default function ReactionBoardChallenge() {
     setIsTargetVisible(false);
     setTapReactionStatus("");
     setTapMessage("Attempts reset.");
+  };
+
+  const selectSwapHandMode = (mode) => {
+    clearSwapTimer();
+    swapTargetShownAtRef.current = null;
+    setIsSwapWaiting(false);
+    setIsSwapTargetVisible(false);
+    setSwapHandMode(mode);
+    setSwapMessage("");
+  };
+
+  const startSwapAttempt = () => {
+    if (selectedSwapAttempts.length >= 3) {
+      setSwapMessage(`${selectedHandLabel} already has three attempts.`);
+      return;
+    }
+
+    clearSwapTimer();
+    setIsSwapTargetVisible(false);
+    setIsSwapWaiting(true);
+    setSwapMessage(`Wait for the target with your ${selectedHandLabel.toLowerCase()}...`);
+    swapTargetShownAtRef.current = null;
+
+    const delay = Math.floor(1000 + Math.random() * 2001);
+
+    swapTimerRef.current = setTimeout(() => {
+      swapTargetShownAtRef.current = Date.now();
+      setIsSwapWaiting(false);
+      setIsSwapTargetVisible(true);
+      setSwapMessage(`Tap now with your ${selectedHandLabel.toLowerCase()}!`);
+      swapTimerRef.current = null;
+    }, delay);
+  };
+
+  const handleSwapEarlyTap = () => {
+    if (!isSwapWaiting || isSwapTargetVisible) {
+      return;
+    }
+
+    clearSwapTimer();
+    swapTargetShownAtRef.current = null;
+    setIsSwapWaiting(false);
+    setIsSwapTargetVisible(false);
+    setSwapMessage("Too early, try again");
+  };
+
+  const handleSwapTargetTap = () => {
+    if (
+      !isSwapTargetVisible ||
+      !swapTargetShownAtRef.current ||
+      selectedSwapAttempts.length >= 3
+    ) {
+      return;
+    }
+
+    const reactionTime = Date.now() - swapTargetShownAtRef.current;
+    const attemptNumber = selectedSwapAttempts.length + 1;
+    let nextDominantAttempts = dominantHandAttempts;
+    let nextNonDominantAttempts = nonDominantHandAttempts;
+
+    if (swapHandMode === "dominant") {
+      nextDominantAttempts = [...dominantHandAttempts, reactionTime];
+      setDominantHandAttempts(nextDominantAttempts);
+    } else {
+      nextNonDominantAttempts = [...nonDominantHandAttempts, reactionTime];
+      setNonDominantHandAttempts(nextNonDominantAttempts);
+    }
+
+    setIsSwapTargetVisible(false);
+    swapTargetShownAtRef.current = null;
+    setSwapMessage(
+      `${selectedHandLabel} attempt ${attemptNumber} saved: ${reactionTime} ms`,
+    );
+
+    if (
+      nextDominantAttempts.length === 3 &&
+      nextNonDominantAttempts.length === 3
+    ) {
+      setSwapHandsStatus("Swap hands completed for demo.");
+    }
+  };
+
+  const resetSelectedSwapAttempts = () => {
+    clearSwapTimer();
+    swapTargetShownAtRef.current = null;
+    setIsSwapWaiting(false);
+    setIsSwapTargetVisible(false);
+    setSwapHandsStatus("");
+
+    if (swapHandMode === "dominant") {
+      setDominantHandAttempts([]);
+    } else {
+      setNonDominantHandAttempts([]);
+    }
+
+    setSwapMessage(`${selectedHandLabel} attempts reset.`);
   };
 
   const saveActivity = () => {
@@ -361,6 +493,151 @@ export default function ReactionBoardChallenge() {
     </View>
   );
 
+  const renderSwapHands = () => (
+    <View style={styles.card}>
+      <Text style={styles.cardLabel}>Phase 2</Text>
+      <Text style={styles.cardTitle}>Swap Hands Mode</Text>
+      <Text style={styles.cardText}>
+        Record reaction attempts with your dominant hand, then switch to your
+        non-dominant hand. Compare the average times to see how hand control
+        changes your response speed.
+      </Text>
+
+      <View style={styles.handModeRow}>
+        <TouchableOpacity
+          style={[
+            styles.handModeButton,
+            swapHandMode === "dominant" && styles.handModeButtonActive,
+          ]}
+          onPress={() => selectSwapHandMode("dominant")}
+          activeOpacity={0.86}
+        >
+          <Text
+            style={[
+              styles.handModeText,
+              swapHandMode === "dominant" && styles.handModeTextActive,
+            ]}
+          >
+            Dominant
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.handModeButton,
+            swapHandMode === "nonDominant" && styles.handModeButtonActive,
+          ]}
+          onPress={() => selectSwapHandMode("nonDominant")}
+          activeOpacity={0.86}
+        >
+          <Text
+            style={[
+              styles.handModeText,
+              swapHandMode === "nonDominant" && styles.handModeTextActive,
+            ]}
+          >
+            Non-dominant
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.comparisonGrid}>
+        <View style={styles.reactionStatTile}>
+          <Text style={styles.summaryLabel}>Dominant average</Text>
+          <Text style={styles.summaryValue}>
+            {dominantAverageTime === null ? "--" : `${dominantAverageTime} ms`}
+          </Text>
+        </View>
+        <View style={styles.reactionStatTile}>
+          <Text style={styles.summaryLabel}>Non-dominant average</Text>
+          <Text style={styles.summaryValue}>
+            {nonDominantAverageTime === null
+              ? "--"
+              : `${nonDominantAverageTime} ms`}
+          </Text>
+        </View>
+        <View style={styles.reactionStatTile}>
+          <Text style={styles.summaryLabel}>Difference</Text>
+          <Text style={styles.summaryValue}>
+            {swapDifference === null ? "--" : `${swapDifference} ms`}
+          </Text>
+        </View>
+      </View>
+
+      {isSwapTargetVisible ? (
+        <TouchableOpacity
+          style={styles.targetButton}
+          onPress={handleSwapTargetTap}
+          activeOpacity={0.82}
+        >
+          <Text style={styles.targetButtonText}>Tap!</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[
+            styles.reactionPad,
+            isSwapWaiting && styles.reactionPadWaiting,
+          ]}
+          onPress={handleSwapEarlyTap}
+          activeOpacity={isSwapWaiting ? 0.82 : 1}
+          disabled={!isSwapWaiting}
+        >
+          <Text style={styles.reactionPadText}>
+            {isSwapWaiting
+              ? `Wait with ${selectedHandLabel.toLowerCase()}...`
+              : `${selectedHandLabel} target will appear here`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {swapMessage ? (
+        <Text style={styles.tapMessage}>{swapMessage}</Text>
+      ) : null}
+
+      <View style={styles.tapActions}>
+        <TouchableOpacity
+          style={[
+            styles.startButton,
+            (isSwapWaiting ||
+              isSwapTargetVisible ||
+              selectedSwapAttempts.length >= 3) &&
+              styles.disabledButton,
+          ]}
+          onPress={startSwapAttempt}
+          activeOpacity={0.86}
+          disabled={
+            isSwapWaiting ||
+            isSwapTargetVisible ||
+            selectedSwapAttempts.length >= 3
+          }
+        >
+          <Text style={styles.startButtonText}>Start</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.resetButton}
+          onPress={resetSelectedSwapAttempts}
+          activeOpacity={0.86}
+        >
+          <Text style={styles.resetButtonText}>Reset Hand</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.attemptList}>
+        {[0, 1, 2].map((attemptIndex) => (
+          <View key={attemptIndex} style={styles.attemptRow}>
+            <Text style={styles.attemptLabel}>
+              {selectedHandLabel} {attemptIndex + 1}
+            </Text>
+            <Text style={styles.attemptValue}>
+              {selectedSwapAttempts[attemptIndex]
+                ? `${selectedSwapAttempts[attemptIndex]} ms`
+                : "Not saved"}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
   const renderResults = () => (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>Results & Reflection</Text>
@@ -384,7 +661,9 @@ export default function ReactionBoardChallenge() {
         <View style={styles.summaryTile}>
           <Text style={styles.summaryLabel}>Swap Hands</Text>
           <Text style={styles.summaryValue}>
-            {swapHandsStatus ? "Complete" : "Not marked"}
+            {swapHandsStatus
+              ? "Complete"
+              : `${dominantHandAttempts.length}/3 dom, ${nonDominantHandAttempts.length}/3 non-dom`}
           </Text>
         </View>
         <View style={styles.summaryTile}>
@@ -448,14 +727,7 @@ export default function ReactionBoardChallenge() {
       case 3:
         return renderTapReaction();
       case 4:
-        return renderPhasePlaceholder({
-          label: "Phase 2",
-          title: "Swap Hands Placeholder",
-          text:
-            "Repeat the reaction task with the opposite hand and compare how control and speed feel different.",
-          status: swapHandsStatus,
-          onPress: () => setSwapHandsStatus("Swap hands completed for demo."),
-        });
+        return renderSwapHands();
       case 5:
         return renderPhasePlaceholder({
           label: "Phase 3",
@@ -862,6 +1134,39 @@ const styles = StyleSheet.create({
     color: "#172218",
     fontSize: 15,
     fontWeight: "900",
+  },
+  handModeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  handModeButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 54,
+    paddingHorizontal: 12,
+  },
+  handModeButtonActive: {
+    backgroundColor: "#172218",
+    borderColor: "#172218",
+  },
+  handModeText: {
+    color: "#172218",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  handModeTextActive: {
+    color: "#ffffff",
+  },
+  comparisonGrid: {
+    gap: 10,
+    marginTop: 14,
   },
   summaryGrid: {
     gap: 10,
