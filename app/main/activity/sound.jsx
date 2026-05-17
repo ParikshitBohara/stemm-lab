@@ -43,7 +43,14 @@ const instructions = [
 
 export default function SoundPollutionHunter() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [prediction, setPrediction] = useState("");
+  const [actionTested, setActionTested] = useState("");
+  const [location, setLocation] = useState("");
+  const [estimatedDbResult, setEstimatedDbResult] = useState("");
+  const [wasPredictionCorrect, setWasPredictionCorrect] = useState("");
+  const [notes, setNotes] = useState("");
   const [reflection, setReflection] = useState("");
+  const [earMuffsAnswer, setEarMuffsAnswer] = useState("");
   const [demoReading, setDemoReading] = useState("");
 
   const isFirstStep = currentStep === 0;
@@ -59,6 +66,30 @@ export default function SoundPollutionHunter() {
     Keyboard.dismiss();
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
+
+  const renderInput = ({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    multiline,
+    keyboardType,
+  }) => (
+    <View style={styles.field}>
+      <Text style={styles.inputLabel}>{label}</Text>
+      <TextInput
+        style={[styles.input, multiline && styles.textArea]}
+        placeholder={placeholder}
+        placeholderTextColor="#8a9584"
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType={keyboardType || "default"}
+        multiline={multiline}
+        textAlignVertical={multiline ? "top" : "center"}
+        returnKeyType={multiline ? "default" : "next"}
+      />
+    </View>
+  );
 
   const renderOverview = () => (
     <View style={styles.card}>
@@ -137,17 +168,51 @@ export default function SoundPollutionHunter() {
   const renderResults = () => (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>Results Placeholder</Text>
-      <Text style={styles.cardTitle}>Compare Locations</Text>
+      <Text style={styles.cardTitle}>Record Your Observations</Text>
       <Text style={styles.cardText}>
         In a later sprint, students can record measured decibel values here. For
-        now, use this step to discuss which place sounded quiet, moderate, or
-        loud.
+        now, use local form fields to describe what was tested and what changed.
       </Text>
-      <View style={styles.resultPreview}>
-        <Text style={styles.previewTitle}>Example result categories</Text>
-        <Text style={styles.previewText}>Quiet area</Text>
-        <Text style={styles.previewText}>Moderate area</Text>
-        <Text style={styles.previewText}>Loud area</Text>
+      <View style={styles.form}>
+        {renderInput({
+          label: "Prediction",
+          value: prediction,
+          onChangeText: setPrediction,
+          placeholder: "Example: The hallway will be louder than the library.",
+          multiline: true,
+        })}
+        {renderInput({
+          label: "Action tested",
+          value: actionTested,
+          onChangeText: setActionTested,
+          placeholder: "Example: Closing the door",
+        })}
+        {renderInput({
+          label: "Location",
+          value: location,
+          onChangeText: setLocation,
+          placeholder: "Example: Canteen entrance",
+        })}
+        {renderInput({
+          label: "Estimated dB result",
+          value: estimatedDbResult,
+          onChangeText: setEstimatedDbResult,
+          placeholder: "Example: 65",
+          keyboardType: "decimal-pad",
+        })}
+        {renderInput({
+          label: "Was prediction correct?",
+          value: wasPredictionCorrect,
+          onChangeText: setWasPredictionCorrect,
+          placeholder: "Example: Yes, partly, or no",
+        })}
+        {renderInput({
+          label: "Notes",
+          value: notes,
+          onChangeText: setNotes,
+          placeholder: "What sound sources did you notice?",
+          multiline: true,
+        })}
       </View>
     </View>
   );
@@ -160,17 +225,21 @@ export default function SoundPollutionHunter() {
         Write a short reflection about the sound sources you found and how the
         loudest place could be improved.
       </Text>
-      <View style={styles.field}>
-        <Text style={styles.inputLabel}>Reflection</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Example: The loudest area was near..."
-          placeholderTextColor="#8a9584"
-          value={reflection}
-          onChangeText={setReflection}
-          multiline
-          textAlignVertical="top"
-        />
+      <View style={styles.form}>
+        {renderInput({
+          label: "Reflection",
+          value: reflection,
+          onChangeText: setReflection,
+          placeholder: "Example: The loudest area was near...",
+          multiline: true,
+        })}
+        {renderInput({
+          label: "Ear muffs answer",
+          value: earMuffsAnswer,
+          onChangeText: setEarMuffsAnswer,
+          placeholder: "Would ear muffs help? Explain your answer.",
+          multiline: true,
+        })}
       </View>
     </View>
   );
