@@ -14,6 +14,7 @@ import {
 import { Audio } from "expo-av";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import { sendActivitySavedNotification } from "../../../utils/notifications";
 
 const steps = [
   "Overview",
@@ -199,6 +200,10 @@ export default function SoundPollutionHunter() {
     }
 
     setActivityMessage("Sound Pollution Hunter activity saved for demo.");
+    sendActivitySavedNotification({
+      title: "STEMM Lab: Activity saved",
+      body: "Your activity result was saved for demo.",
+    }).catch(() => undefined);
   };
 
   const renderInput = ({
