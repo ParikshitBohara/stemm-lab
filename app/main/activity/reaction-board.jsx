@@ -65,11 +65,12 @@ export default function ReactionBoardChallenge() {
   const [isSwapTargetVisible, setIsSwapTargetVisible] = useState(false);
   const [swapMessage, setSwapMessage] = useState("");
   const [tracingStatus, setTracingStatus] = useState("");
-  const [bestPhase, setBestPhase] = useState("");
-  const [hardestPhase, setHardestPhase] = useState("");
-  const [notes, setNotes] = useState("");
+  const [prediction, setPrediction] = useState("");
+  const [wereYouRight, setWereYouRight] = useState("");
+  const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const reactionTimerRef = useRef(null);
   const swapTimerRef = useRef(null);
   const targetShownAtRef = useRef(null);
@@ -93,6 +94,10 @@ export default function ReactionBoardChallenge() {
       : nonDominantHandAttempts;
   const selectedHandLabel =
     swapHandMode === "dominant" ? "Dominant hand" : "Non-dominant hand";
+  const hasReactionResult =
+    tapAttempts.length > 0 ||
+    dominantHandAttempts.length > 0 ||
+    nonDominantHandAttempts.length > 0;
 
   const clearReactionTimer = () => {
     if (reactionTimerRef.current) {
@@ -135,6 +140,7 @@ export default function ReactionBoardChallenge() {
     setIsSwapWaiting(false);
     setIsSwapTargetVisible(false);
     setSuccessMessage("");
+    setSaveError("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
@@ -300,6 +306,19 @@ export default function ReactionBoardChallenge() {
 
   const saveActivity = () => {
     Keyboard.dismiss();
+    setSuccessMessage("");
+    setSaveError("");
+
+    if (!prediction.trim()) {
+      setSaveError("Add your prediction before saving.");
+      return;
+    }
+
+    if (!hasReactionResult) {
+      setSaveError("Record at least one reaction result before saving.");
+      return;
+    }
+
     setSuccessMessage("Reaction Board activity saved for demo.");
   };
 
@@ -676,22 +695,23 @@ export default function ReactionBoardChallenge() {
 
       <View style={styles.form}>
         {renderInput({
-          label: "Best phase",
-          value: bestPhase,
-          onChangeText: setBestPhase,
-          placeholder: "Example: Tap reaction",
+          label: "Prediction",
+          value: prediction,
+          onChangeText: setPrediction,
+          placeholder: "Example: I think my dominant hand will be faster.",
+          multiline: true,
         })}
         {renderInput({
-          label: "Hardest phase",
-          value: hardestPhase,
-          onChangeText: setHardestPhase,
-          placeholder: "Example: Tracing challenge",
+          label: "Were you right?",
+          value: wereYouRight,
+          onChangeText: setWereYouRight,
+          placeholder: "Example: Yes, my dominant hand was faster.",
         })}
         {renderInput({
-          label: "Notes",
-          value: notes,
-          onChangeText: setNotes,
-          placeholder: "What did you notice about speed or accuracy?",
+          label: "Surprises",
+          value: surprises,
+          onChangeText: setSurprises,
+          placeholder: "What surprised you about your reaction results?",
           multiline: true,
         })}
         {renderInput({
@@ -703,6 +723,7 @@ export default function ReactionBoardChallenge() {
         })}
       </View>
 
+      {saveError ? <Text style={styles.errorText}>{saveError}</Text> : null}
       {successMessage ? (
         <Text style={styles.successText}>{successMessage}</Text>
       ) : null}
@@ -1223,6 +1244,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#dcfce7",
     borderRadius: 16,
     color: "#166534",
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 21,
+    marginTop: 18,
+    padding: 13,
+  },
+  errorText: {
+    backgroundColor: "#ffe3df",
+    borderRadius: 16,
+    color: "#9f1d14",
     fontSize: 15,
     fontWeight: "900",
     lineHeight: 21,
