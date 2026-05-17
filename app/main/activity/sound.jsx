@@ -78,6 +78,8 @@ export default function SoundPollutionHunter() {
   const [savedMeasurement, setSavedMeasurement] = useState("");
   const [permissionMessage, setPermissionMessage] = useState("");
   const [measurementError, setMeasurementError] = useState("");
+  const [activityMessage, setActivityMessage] = useState("");
+  const [activityError, setActivityError] = useState("");
   const recordingRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
@@ -177,6 +179,26 @@ export default function SoundPollutionHunter() {
     setEstimatedDbResult(savedValue);
     setSavedMeasurement(`${savedValue} dB estimate saved locally.`);
     setMeasurementError("");
+  };
+
+  const saveActivity = () => {
+    Keyboard.dismiss();
+    setActivityError("");
+    setActivityMessage("");
+
+    if (
+      !prediction.trim() ||
+      !actionTested.trim() ||
+      !estimatedDbResult.trim() ||
+      !reflection.trim()
+    ) {
+      setActivityError(
+        "Add your prediction, action tested, estimated dB, and reflection before saving.",
+      );
+      return;
+    }
+
+    setActivityMessage("Sound Pollution Hunter activity saved for demo.");
   };
 
   const renderInput = ({
@@ -402,6 +424,19 @@ export default function SoundPollutionHunter() {
           multiline: true,
         })}
       </View>
+      {activityError ? (
+        <Text style={styles.errorText}>{activityError}</Text>
+      ) : null}
+      {activityMessage ? (
+        <Text style={styles.activitySuccessText}>{activityMessage}</Text>
+      ) : null}
+      <TouchableOpacity
+        style={styles.saveActivityButton}
+        onPress={saveActivity}
+        activeOpacity={0.86}
+      >
+        <Text style={styles.saveActivityButtonText}>Save Activity</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -708,6 +743,16 @@ const styles = StyleSheet.create({
     marginTop: 14,
     padding: 12,
   },
+  activitySuccessText: {
+    backgroundColor: "#dcfce7",
+    borderRadius: 16,
+    color: "#166534",
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 21,
+    marginTop: 18,
+    padding: 13,
+  },
   measurementActions: {
     flexDirection: "row",
     gap: 12,
@@ -841,6 +886,21 @@ const styles = StyleSheet.create({
   textArea: {
     lineHeight: 23,
     minHeight: 128,
+  },
+  saveActivityButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 20,
+    justifyContent: "center",
+    marginTop: 18,
+    minHeight: 60,
+    paddingHorizontal: 16,
+  },
+  saveActivityButtonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
   },
   navRow: {
     flexDirection: "row",
