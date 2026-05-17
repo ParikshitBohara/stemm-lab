@@ -49,9 +49,9 @@ const EARTHQUAKE_VIBRATION_PATTERN = [0, 250, 120, 420, 140, 300];
 const SENSOR_UPDATE_MS = 120;
 
 const designOptions = [
-  { key: "design1Outcome", label: "Design 1" },
-  { key: "design2Outcome", label: "Design 2" },
-  { key: "design3Outcome", label: "Design 3" },
+  { id: "design1", outcomeKey: "design1Outcome", label: "Design 1" },
+  { id: "design2", outcomeKey: "design2Outcome", label: "Design 2" },
+  { id: "design3", outcomeKey: "design3Outcome", label: "Design 3" },
 ];
 
 const resultFields = [
@@ -124,10 +124,16 @@ export default function EarthquakeResistantStructure() {
   const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [isTesting, setIsTesting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [testMessage, setTestMessage] = useState("");
-  const [activeDesignKey, setActiveDesignKey] = useState("design1Outcome");
+  const [activeDesignId, setActiveDesignId] = useState("design1");
+  const [designResults, setDesignResults] = useState({
+    design1: null,
+    design2: null,
+    design3: null,
+  });
   const [currentMovement, setCurrentMovement] = useState(null);
   const [maxMovement, setMaxMovement] = useState(null);
   const [averageMovement, setAverageMovement] = useState(null);
@@ -148,6 +154,21 @@ export default function EarthquakeResistantStructure() {
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
+  const activeDesign =
+    designOptions.find((design) => design.id === activeDesignId) ||
+    designOptions[0];
+  const testedDesigns = designOptions
+    .map((design) => ({
+      ...design,
+      result: designResults[design.id],
+    }))
+    .filter((design) => design.result);
+  const bestDesign =
+    testedDesigns.length > 0
+      ? testedDesigns.reduce((best, design) =>
+          design.result.average < best.result.average ? design : best,
+        )
+      : null;
 
   const fieldValues = {
     prediction,
@@ -239,13 +260,25 @@ export default function EarthquakeResistantStructure() {
       return;
     }
 
+    const savedResult = {
+      current: latestResult.current,
+      max: latestResult.max,
+      average: latestResult.average,
+      tilt: latestResult.tilt,
+      status: statusLabel,
+    };
+
     const savedText = `${statusLabel}: current ${formatMovement(
       latestResult.current,
     )}, max ${formatMovement(latestResult.max)}, average ${formatMovement(
       latestResult.average,
     )}, tilt ${formatTilt(latestResult.tilt)}. Classroom estimate from phone sensor data.`;
 
-    fieldSetters[activeDesignKey](savedText);
+    setDesignResults((results) => ({
+      ...results,
+      [activeDesign.id]: savedResult,
+    }));
+    fieldSetters[activeDesign.outcomeKey](savedText);
   };
 
   const handleAccelerometerUpdate = ({ x, y, z }) => {
@@ -365,11 +398,30 @@ export default function EarthquakeResistantStructure() {
     setSecondsRemaining(0);
     setTestMessage("");
     setSuccessMessage("");
+    setSaveError("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
   const saveActivity = () => {
     Keyboard.dismiss();
+    setSuccessMessage("");
+    setSaveError("");
+
+    if (!prediction.trim()) {
+      setSaveError("Add your prediction before saving.");
+      return;
+    }
+
+    if (testedDesigns.length === 0) {
+      setSaveError("Run at least one design test before saving.");
+      return;
+    }
+
+    if (!reflection.trim()) {
+      setSaveError("Add your reflection before saving.");
+      return;
+    }
+
     setSuccessMessage("Earthquake activity saved for demo.");
   };
 
@@ -388,6 +440,7 @@ export default function EarthquakeResistantStructure() {
         onChangeText={(text) => {
           onChangeText(text);
           setSuccessMessage("");
+          setSaveError("");
         }}
         placeholder={placeholder}
         placeholderTextColor="#8b9784"
@@ -464,18 +517,18 @@ export default function EarthquakeResistantStructure() {
         <View style={styles.designButtonRow}>
           {designOptions.map((design) => (
             <TouchableOpacity
-              key={design.key}
+              key={design.id}
               style={[
                 styles.designButton,
-                activeDesignKey === design.key && styles.designButtonActive,
+                activeDesignId === design.id && styles.designButtonActive,
               ]}
-              onPress={() => setActiveDesignKey(design.key)}
+              onPress={() => setActiveDesignId(design.id)}
               disabled={isTesting}
             >
               <Text
                 style={[
                   styles.designButtonText,
-                  activeDesignKey === design.key &&
+                  activeDesignId === design.id &&
                     styles.designButtonTextActive,
                 ]}
               >
@@ -541,6 +594,41 @@ export default function EarthquakeResistantStructure() {
     </View>
   );
 
+  const renderComparisonCard = () => (
+    <View style={styles.comparisonCard}>
+      <Text style={styles.comparisonTitle}>Design Comparison</Text>
+      <Text style={styles.comparisonHint}>
+        Lowest average movement is the most stable result.
+      </Text>
+      {designOptions.map((design) => {
+        const result = designResults[design.id];
+
+        return (
+          <View style={styles.comparisonRow} key={design.id}>
+            <Text style={styles.comparisonLabel}>{design.label} movement</Text>
+            <Text style={styles.comparisonValue}>
+              {result
+                ? `Max ${formatMovement(result.max)} | Avg ${formatMovement(
+                    result.average,
+                  )} | Tilt ${formatTilt(result.tilt)}`
+                : "Not tested yet"}
+            </Text>
+          </View>
+        );
+      })}
+      <View style={styles.bestDesignBox}>
+        <Text style={styles.bestDesignLabel}>Best design</Text>
+        <Text style={styles.bestDesignValue}>
+          {bestDesign
+            ? `${bestDesign.label} - lowest average movement (${formatMovement(
+                bestDesign.result.average,
+              )})`
+            : "Run a test to compare designs"}
+        </Text>
+      </View>
+    </View>
+  );
+
   const renderResults = () => (
     <View style={styles.card}>
       <Text style={styles.sectionKicker}>Observations</Text>
@@ -549,6 +637,7 @@ export default function EarthquakeResistantStructure() {
         Compare each structure design. Focus on movement, stability, and how
         each redesign changed the result.
       </Text>
+      {renderComparisonCard()}
       {resultFields.map((field) =>
         renderInput({
           ...field,
@@ -571,6 +660,9 @@ export default function EarthquakeResistantStructure() {
           "What design features helped your structure handle vibration?",
         multiline: true,
       })}
+      {saveError ? (
+        <Text style={styles.errorText}>{saveError}</Text>
+      ) : null}
       {successMessage ? (
         <Text style={styles.successText}>{successMessage}</Text>
       ) : null}
@@ -924,6 +1016,63 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 5,
   },
+  comparisonCard: {
+    backgroundColor: "#f6f8ef",
+    borderColor: "#d7e3cf",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    marginTop: 16,
+  },
+  comparisonTitle: {
+    color: "#172218",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  comparisonHint: {
+    color: "#5f6f52",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    marginTop: 5,
+    marginBottom: 8,
+  },
+  comparisonRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#dfe8d9",
+    paddingVertical: 11,
+  },
+  comparisonLabel: {
+    color: "#344234",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  comparisonValue: {
+    color: "#172218",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  bestDesignBox: {
+    backgroundColor: "#172218",
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 8,
+  },
+  bestDesignLabel: {
+    color: "#f0ff75",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  bestDesignValue: {
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+    marginTop: 5,
+  },
   testButtonRow: {
     gap: 10,
     marginTop: 16,
@@ -990,6 +1139,16 @@ const styles = StyleSheet.create({
   successText: {
     backgroundColor: "#e8f5e9",
     color: "#244b2a",
+    borderRadius: 16,
+    padding: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    marginTop: 14,
+  },
+  errorText: {
+    backgroundColor: "#ffe3df",
+    color: "#9f1d14",
     borderRadius: 16,
     padding: 12,
     fontSize: 14,
