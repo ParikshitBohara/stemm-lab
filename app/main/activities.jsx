@@ -10,7 +10,7 @@ const activities = [
   { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
   { title: "Earthquake Structure", area: "Earth Science", accent: "#ede9fe" },
   { title: "Human Performance Lab", area: "Biomechanics", accent: "#ffe4e6" },
-  { title: "Reaction Board", area: "Neuroscience", accent: "#ccfbf1" },
+  { title: "Reaction Board", area: "Neuroscience", accent: "#ccfbf1", path: "/main/activity/reaction-board" },
   { title: "Breathing Pace Trainer", area: "Medical Science", accent: "#e0f2fe" },
 ];
 
