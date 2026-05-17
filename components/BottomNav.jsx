@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 const items = [
   { key: "home", label: "Home", path: "/main/home" },
   { key: "activities", label: "Labs", path: "/main/activities" },
+  { key: "leaderboard", label: "Leaders", path: "/main/leaderboard" },
   { key: "team", label: "Team", path: "/main/team-setup" },
   { key: "profile", label: "Profile", path: "/main/profile" },
 ];
@@ -73,7 +74,7 @@ const styles = StyleSheet.create({
   text: {
     color: "#dbe7d4",
     fontWeight: "800",
-    fontSize: 11,
+    fontSize: 10,
   },
   activeText: {
     color: "#172218",
