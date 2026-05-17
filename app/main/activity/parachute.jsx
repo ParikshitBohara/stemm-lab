@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import { sendActivitySavedNotification } from "../../../utils/notifications";
 
 const GRAVITY = 9.8;
 
@@ -239,6 +240,10 @@ export default function ParachuteChallenge() {
   const handleSaveExperiment = () => {
     Keyboard.dismiss();
     setSuccessMessage("Parachute experiment saved for demo.");
+    sendActivitySavedNotification({
+      title: "STEMM Lab: Activity saved",
+      body: "Your activity result was saved for demo.",
+    }).catch(() => undefined);
   };
 
   const renderInput = ({

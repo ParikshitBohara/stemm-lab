@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -9,6 +10,12 @@ import {
   View,
 } from "react-native";
 import BottomNav from "../../components/BottomNav";
+import {
+  cancelAllNotifications,
+  requestNotificationPermission,
+  scheduleActivityReminder,
+  sendTestNotification,
+} from "../../utils/notifications";
 
 const settings = [
   { label: "Account Type", value: "Student prototype" },
@@ -17,9 +24,34 @@ const settings = [
 
 export default function Profile() {
   const router = useRouter();
+  const [notificationMessage, setNotificationMessage] = useState("");
+  const [notificationError, setNotificationError] = useState("");
+  const [busyNotificationAction, setBusyNotificationAction] = useState("");
 
   const handleLogout = () => {
     router.replace("/auth/login");
+  };
+
+  const runNotificationAction = async (actionName, action) => {
+    setBusyNotificationAction(actionName);
+    setNotificationMessage("");
+    setNotificationError("");
+
+    try {
+      const result = await action();
+
+      if (result?.success || result?.granted) {
+        setNotificationMessage(result.message);
+      } else {
+        setNotificationError(
+          result?.message || "That notification action could not be completed.",
+        );
+      }
+    } catch (_error) {
+      setNotificationError("Notifications are not available right now.");
+    } finally {
+      setBusyNotificationAction("");
+    }
   };
 
   return (
@@ -62,6 +94,94 @@ export default function Profile() {
               <Text style={styles.settingValue}>{item.value}</Text>
             </View>
           ))}
+        </View>
+
+        <View style={styles.notificationsCard}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+          <Text style={styles.notificationText}>
+            Try local STEMM Lab reminders on this device. These do not use push
+            tokens, Firebase Cloud Messaging, or a backend.
+          </Text>
+
+          {notificationMessage ? (
+            <Text style={styles.notificationSuccess}>{notificationMessage}</Text>
+          ) : null}
+          {notificationError ? (
+            <Text style={styles.notificationError}>{notificationError}</Text>
+          ) : null}
+
+          <TouchableOpacity
+            style={[
+              styles.notificationButton,
+              busyNotificationAction && styles.notificationButtonDisabled,
+            ]}
+            onPress={() =>
+              runNotificationAction(
+                "permission",
+                requestNotificationPermission,
+              )
+            }
+            disabled={!!busyNotificationAction}
+          >
+            <Text style={styles.notificationButtonText}>
+              {busyNotificationAction === "permission"
+                ? "Requesting..."
+                : "Request Permission"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.notificationButton,
+              busyNotificationAction && styles.notificationButtonDisabled,
+            ]}
+            onPress={() =>
+              runNotificationAction("test", sendTestNotification)
+            }
+            disabled={!!busyNotificationAction}
+          >
+            <Text style={styles.notificationButtonText}>
+              {busyNotificationAction === "test"
+                ? "Sending..."
+                : "Send Test Notification"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.notificationButton,
+              busyNotificationAction && styles.notificationButtonDisabled,
+            ]}
+            onPress={() =>
+              runNotificationAction("reminder", () =>
+                scheduleActivityReminder(10),
+              )
+            }
+            disabled={!!busyNotificationAction}
+          >
+            <Text style={styles.notificationButtonText}>
+              {busyNotificationAction === "reminder"
+                ? "Scheduling..."
+                : "Schedule Activity Reminder in 10 Seconds"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.cancelNotificationButton,
+              busyNotificationAction && styles.notificationButtonDisabled,
+            ]}
+            onPress={() =>
+              runNotificationAction("cancel", cancelAllNotifications)
+            }
+            disabled={!!busyNotificationAction}
+          >
+            <Text style={styles.cancelNotificationText}>
+              {busyNotificationAction === "cancel"
+                ? "Cancelling..."
+                : "Cancel All Notifications"}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.noteCard}>
@@ -202,6 +322,79 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 15,
     marginTop: 4,
+  },
+  notificationsCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 14,
+    elevation: 2,
+    shadowColor: "#20351f",
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  notificationText: {
+    color: "#5f6f52",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  notificationSuccess: {
+    backgroundColor: "#e8f5e9",
+    color: "#244b2a",
+    borderRadius: 16,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  notificationError: {
+    backgroundColor: "#ffe3df",
+    color: "#9f1d14",
+    borderRadius: 16,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  notificationButton: {
+    minHeight: 52,
+    backgroundColor: "#172218",
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  notificationButtonDisabled: {
+    opacity: 0.55,
+  },
+  notificationButtonText: {
+    color: "#f0ff75",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  cancelNotificationButton: {
+    minHeight: 52,
+    backgroundColor: "#f6f8ef",
+    borderColor: "#d7e3cf",
+    borderWidth: 1,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  cancelNotificationText: {
+    color: "#344234",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
   },
   noteCard: {
     backgroundColor: "#e8f5e9",
