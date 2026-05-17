@@ -14,137 +14,101 @@ import {
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
 
+const GRAVITY = 9.8;
+
+const wizardSteps = [
+  "Overview",
+  "Equipment",
+  "Instructions",
+  "Video Evidence",
+  "Experiment Results",
+  "Physics Calculations",
+  "Reflection & Save",
+];
+
 const equipment = [
-  "Plastic bag or lightweight fabric",
+  "Mobile phone with STEMM Lab app",
+  "Small toy",
+  "Table or elevated surface",
+  "Paper or plastic",
   "String",
+  "Scissors",
   "Tape",
-  "Small test weight",
-  "Ruler or measuring tape",
-  "Timer",
 ];
 
 const instructions = [
-  "Build a parachute canopy using the plastic bag or lightweight fabric.",
-  "Attach equal lengths of string to the canopy and connect them to the test weight.",
-  "Drop the parachute from the same height for every trial.",
-  "Record how long the parachute takes to reach the ground.",
-  "Adjust one design feature, then test again and compare the results.",
+  "Drop the toy without a parachute and record the baseline.",
+  "Build a parachute using the materials.",
+  "Drop the toy from the same height.",
+  "Review speed and landing accuracy.",
+  "Redesign and test up to three prototypes.",
+  "Save results and reflection.",
 ];
 
-const physicsConcepts = [
-  {
-    title: "Gravity",
-    detail: "Pulls the parachute and test weight toward the ground.",
-  },
-  {
-    title: "Drag",
-    detail: "Air resistance that slows the parachute as it falls.",
-  },
-  {
-    title: "Net Force",
-    detail: "The combined push and pull acting on the falling design.",
-  },
-  {
-    title: "G-Force",
-    detail: "The acceleration load felt during launch, fall, or landing.",
-  },
-];
+const physicsConcepts = ["Gravity", "Drag", "Net Force", "G-Force"];
 
-const studentFocus = [
+const experimentInputs = [
   {
-    group: "Primary School",
-    detail: "Observe, describe, compare trials, and discuss fair testing.",
-  },
-  {
-    group: "High School",
-    detail: "Control variables, analyse forces, and justify design changes.",
-  },
-];
-
-const curriculumLinks = [
-  "Forces and motion",
-  "Scientific inquiry skills",
-  "Engineering design process",
-  "Data collection and evidence-based reflection",
-];
-
-const GRAVITY = 9.8;
-
-const trialFields = [
-  { key: "baselineTime", label: "Baseline" },
-  { key: "prototypeOneTime", label: "Prototype 1" },
-  { key: "prototypeTwoTime", label: "Prototype 2" },
-  { key: "prototypeThreeTime", label: "Prototype 3" },
-];
-
-const experimentFields = [
-  {
-    key: "prediction",
     label: "Prediction",
-    placeholder: "What do you think will happen before testing?",
+    placeholder: "What do you think will happen?",
+    key: "prediction",
     multiline: true,
   },
   {
-    key: "dropHeight",
-    label: "Drop Height (metres)",
+    label: "Drop height in metres",
     placeholder: "Example: 2",
+    key: "dropHeight",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "toyMass",
-    label: "Toy Mass (kilograms)",
+    label: "Toy mass in kilograms",
     placeholder: "Example: 0.15",
+    key: "toyMass",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "baselineTime",
-    label: "Baseline Drop Time (seconds)",
+    label: "Baseline time in seconds",
     placeholder: "Example: 1.8",
+    key: "baselineTime",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "prototypeOneTime",
-    label: "Prototype 1 Time (seconds)",
+    label: "Prototype 1 time",
     placeholder: "Example: 2.1",
+    key: "prototype1Time",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "prototypeTwoTime",
-    label: "Prototype 2 Time (seconds)",
+    label: "Prototype 2 time",
     placeholder: "Example: 2.4",
+    key: "prototype2Time",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "prototypeThreeTime",
-    label: "Prototype 3 Time (seconds)",
+    label: "Prototype 3 time",
     placeholder: "Example: 2.6",
+    key: "prototype3Time",
     keyboardType: "decimal-pad",
     numeric: true,
   },
   {
-    key: "contactTime",
-    label: "Contact Time After Landing (seconds)",
-    placeholder: "Example: 0.3",
-    keyboardType: "decimal-pad",
-    numeric: true,
-  },
-  {
+    label: "Landing notes",
+    placeholder: "Did the toy land safely, tip over, or bounce?",
     key: "landingNotes",
-    label: "Landing Notes",
-    placeholder: "Was the landing stable, tilted, fast, or slow?",
     multiline: true,
   },
-  {
-    key: "reflection",
-    label: "Reflection",
-    placeholder: "What would you improve next?",
-    multiline: true,
-  },
+];
+
+const trialInputs = [
+  { key: "baselineTime", label: "Baseline" },
+  { key: "prototype1Time", label: "Prototype 1" },
+  { key: "prototype2Time", label: "Prototype 2" },
+  { key: "prototype3Time", label: "Prototype 3" },
 ];
 
 const parsePositiveNumber = (value) => {
@@ -154,13 +118,13 @@ const parsePositiveNumber = (value) => {
     return { status: "empty", value: null };
   }
 
-  const parsedValue = Number(trimmedValue.replace(",", "."));
+  const numberValue = Number(trimmedValue.replace(",", "."));
 
-  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
     return { status: "invalid", value: null };
   }
 
-  return { status: "valid", value: parsedValue };
+  return { status: "valid", value: numberValue };
 };
 
 const formatNumber = (value, unit = "") => {
@@ -169,93 +133,385 @@ const formatNumber = (value, unit = "") => {
 };
 
 export default function ParachuteChallenge() {
-  const [completedSteps, setCompletedSteps] = useState([]);
-  const [experiment, setExperiment] = useState({
-    prediction: "",
-    dropHeight: "",
-    toyMass: "",
-    baselineTime: "",
-    prototypeOneTime: "",
-    prototypeTwoTime: "",
-    prototypeThreeTime: "",
-    contactTime: "",
-    landingNotes: "",
-    reflection: "",
-  });
+  const [currentStep, setCurrentStep] = useState(0);
+  const [prediction, setPrediction] = useState("");
+  const [dropHeight, setDropHeight] = useState("");
+  const [toyMass, setToyMass] = useState("");
+  const [baselineTime, setBaselineTime] = useState("");
+  const [prototype1Time, setPrototype1Time] = useState("");
+  const [prototype2Time, setPrototype2Time] = useState("");
+  const [prototype3Time, setPrototype3Time] = useState("");
+  const [contactTime, setContactTime] = useState("");
+  const [landingNotes, setLandingNotes] = useState("");
+  const [reflection, setReflection] = useState("");
+  const [videoUri, setVideoUri] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  const toggleStep = (stepIndex) => {
-    setCompletedSteps((current) =>
-      current.includes(stepIndex)
-        ? current.filter((item) => item !== stepIndex)
-        : [...current, stepIndex],
-    );
+  const fieldValues = {
+    prediction,
+    dropHeight,
+    toyMass,
+    baselineTime,
+    prototype1Time,
+    prototype2Time,
+    prototype3Time,
+    landingNotes,
   };
 
-  const updateExperiment = (key, value) => {
-    setExperiment((current) => ({ ...current, [key]: value }));
+  const fieldSetters = {
+    prediction: setPrediction,
+    dropHeight: setDropHeight,
+    toyMass: setToyMass,
+    baselineTime: setBaselineTime,
+    prototype1Time: setPrototype1Time,
+    prototype2Time: setPrototype2Time,
+    prototype3Time: setPrototype3Time,
+    landingNotes: setLandingNotes,
+  };
+
+  const numericValues = {
+    dropHeight: parsePositiveNumber(dropHeight),
+    toyMass: parsePositiveNumber(toyMass),
+    baselineTime: parsePositiveNumber(baselineTime),
+    prototype1Time: parsePositiveNumber(prototype1Time),
+    prototype2Time: parsePositiveNumber(prototype2Time),
+    prototype3Time: parsePositiveNumber(prototype3Time),
+    contactTime: parsePositiveNumber(contactTime),
+  };
+
+  const hasBaseValues =
+    numericValues.dropHeight.status === "valid" &&
+    numericValues.toyMass.status === "valid";
+  const hasInvalidBaseValue =
+    numericValues.dropHeight.status === "invalid" ||
+    numericValues.toyMass.status === "invalid";
+  const hasInvalidTime = trialInputs.some(
+    (trial) => numericValues[trial.key].status === "invalid",
+  );
+  const hasInvalidContactTime = numericValues.contactTime.status === "invalid";
+  const validContactTime =
+    numericValues.contactTime.status === "valid"
+      ? numericValues.contactTime.value
+      : null;
+
+  const trialResults = hasBaseValues
+    ? trialInputs
+        .filter((trial) => numericValues[trial.key].status === "valid")
+        .map((trial) => {
+          const dropTime = numericValues[trial.key].value;
+          const finalVelocity = numericValues.dropHeight.value / dropTime;
+          const acceleration = finalVelocity / dropTime;
+          const netForce = numericValues.toyMass.value * acceleration;
+          const weight = numericValues.toyMass.value * GRAVITY;
+          const dragForce = weight - netForce;
+          const gForce =
+            validContactTime === null
+              ? null
+              : finalVelocity / validContactTime / GRAVITY;
+
+          return {
+            ...trial,
+            finalVelocity,
+            acceleration,
+            netForce,
+            weight,
+            dragForce,
+            gForce,
+          };
+        })
+    : [];
+
+  const progressPercent = `${((currentStep + 1) / wizardSteps.length) * 100}%`;
+  const isFirstStep = currentStep === 0;
+  const isLastStep = currentStep === wizardSteps.length - 1;
+
+  const goBack = () => {
+    Keyboard.dismiss();
+    setCurrentStep((step) => Math.max(step - 1, 0));
+  };
+
+  const goNext = () => {
+    Keyboard.dismiss();
     setSuccessMessage("");
+    setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1));
   };
 
   const handleSaveExperiment = () => {
     Keyboard.dismiss();
-    setSuccessMessage("Experiment saved for demo.");
+    setSuccessMessage("Parachute experiment saved for demo.");
   };
 
-  const numericValues = {
-    dropHeight: parsePositiveNumber(experiment.dropHeight),
-    toyMass: parsePositiveNumber(experiment.toyMass),
-    contactTime: parsePositiveNumber(experiment.contactTime),
-    baselineTime: parsePositiveNumber(experiment.baselineTime),
-    prototypeOneTime: parsePositiveNumber(experiment.prototypeOneTime),
-    prototypeTwoTime: parsePositiveNumber(experiment.prototypeTwoTime),
-    prototypeThreeTime: parsePositiveNumber(experiment.prototypeThreeTime),
-  };
-  const hasSharedInvalid = ["dropHeight", "toyMass"].some(
-    (key) => numericValues[key].status === "invalid",
-  );
-  const hasInvalidTrial = trialFields.some(
-    (trial) => numericValues[trial.key].status === "invalid",
-  );
-  const hasInvalidContact = numericValues.contactTime.status === "invalid";
-  const hasBaseValues =
-    numericValues.dropHeight.status === "valid" &&
-    numericValues.toyMass.status === "valid";
-  const contactTime =
-    numericValues.contactTime.status === "valid"
-      ? numericValues.contactTime.value
-      : null;
-  const trialResults =
-    hasBaseValues && !hasSharedInvalid
-      ? trialFields
-          .filter((trial) => numericValues[trial.key].status === "valid")
-          .map((trial) => {
-            const dropTime = numericValues[trial.key].value;
-            const finalVelocity = numericValues.dropHeight.value / dropTime;
-            const acceleration = finalVelocity / dropTime;
-            const netForce = numericValues.toyMass.value * acceleration;
-            const weight = numericValues.toyMass.value * GRAVITY;
-            const dragForce = weight - netForce;
-            const gForce =
-              contactTime === null
-                ? null
-                : finalVelocity / contactTime / GRAVITY;
+  const renderInput = ({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    multiline,
+    keyboardType,
+    numeric,
+  }) => {
+    const isInvalid =
+      numeric &&
+      value.trim() &&
+      parsePositiveNumber(value).status === "invalid";
 
-            return {
-              ...trial,
-              finalVelocity,
-              acceleration,
-              netForce,
-              weight,
-              dragForce,
-              gForce,
-            };
-          })
-      : [];
-  const calculationMessage =
-    hasSharedInvalid || hasInvalidTrial || hasInvalidContact
-    ? "Use positive numbers for physics calculations."
-    : "Enter values to calculate";
+    return (
+      <View style={styles.field} key={label}>
+        <Text style={styles.inputLabel}>{label}</Text>
+        <TextInput
+          style={[styles.input, multiline && styles.textArea]}
+          placeholder={placeholder}
+          placeholderTextColor="#8a9584"
+          value={value}
+          onChangeText={(nextValue) => {
+            onChangeText(nextValue);
+            setSuccessMessage("");
+          }}
+          keyboardType={keyboardType || "default"}
+          multiline={multiline}
+          textAlignVertical={multiline ? "top" : "center"}
+          returnKeyType={multiline ? "default" : "next"}
+        />
+        {isInvalid ? (
+          <Text style={styles.validationText}>Enter a positive number.</Text>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderOverviewStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Overview</Text>
+      <Text style={styles.pageTitle}>Parachute Drop Challenge</Text>
+      <Text style={styles.categoryText}>Engineering + Physics</Text>
+      <Text style={styles.cardText}>
+        Build and test a parachute that slows a small toy as it falls and helps it
+        land safely. You will compare a baseline drop with improved prototypes,
+        then use simple physics to explain what changed.
+      </Text>
+
+      <View style={styles.conceptGrid}>
+        {physicsConcepts.map((concept) => (
+          <View key={concept} style={styles.conceptPill}>
+            <Text style={styles.conceptText}>{concept}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.focusBox}>
+        <Text style={styles.focusTitle}>Student Focus</Text>
+        <Text style={styles.focusText}>
+          Upper primary students can focus on fair tests and observations.
+          Lower high school students can connect results to force, drag, and
+          acceleration.
+        </Text>
+      </View>
+    </View>
+  );
+
+  const renderEquipmentStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Equipment</Text>
+      <Text style={styles.cardTitle}>Gather Your Materials</Text>
+      <View style={styles.list}>
+        {equipment.map((item) => (
+          <View key={item} style={styles.listRow}>
+            <View style={styles.dot} />
+            <Text style={styles.listText}>{item}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderInstructionsStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Instructions</Text>
+      <Text style={styles.cardTitle}>Build, Test, Improve</Text>
+      <View style={styles.list}>
+        {instructions.map((instruction, index) => (
+          <View key={instruction} style={styles.instructionRow}>
+            <View style={styles.stepNumber}>
+              <Text style={styles.stepNumberText}>{index + 1}</Text>
+            </View>
+            <Text style={styles.instructionText}>{instruction}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderVideoStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Video Evidence</Text>
+      <Text style={styles.cardTitle}>Capture Proof Later</Text>
+      <Text style={styles.cardText}>
+        Record or attach video evidence in a later sprint. For now, this button
+        only marks that video evidence was captured for the demo flow.
+      </Text>
+      <View style={styles.videoBox}>
+        <Text style={styles.videoStatus}>
+          {videoUri ? "Video captured for demo." : "No video evidence added yet."}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={styles.secondaryAction}
+        onPress={() => setVideoUri("demo-video-uri")}
+        activeOpacity={0.86}
+      >
+        <Text style={styles.secondaryActionText}>Add Video Evidence</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderExperimentStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Experiment Results</Text>
+      <Text style={styles.cardTitle}>Record Your Test Data</Text>
+      <Text style={styles.cardText}>
+        Keep each measurement in the same units so your comparison is fair.
+      </Text>
+      <View style={styles.form}>
+        {experimentInputs.map((field) =>
+          renderInput({
+            ...field,
+            value: fieldValues[field.key],
+            onChangeText: fieldSetters[field.key],
+          }),
+        )}
+      </View>
+    </View>
+  );
+
+  const renderPhysicsStep = () => {
+    const showMissingMessage = trialResults.length === 0;
+    const calculationMessage =
+      hasInvalidBaseValue || hasInvalidTime || hasInvalidContactTime
+        ? "Use positive numbers for physics calculations."
+        : "Enter drop height, mass, and time to calculate results.";
+
+    return (
+      <View style={styles.stepCard}>
+        <Text style={styles.cardLabel}>Physics Calculations</Text>
+        <Text style={styles.cardTitle}>Explain the Drop</Text>
+        <Text style={styles.cardText}>
+          These results update locally from your measurements. Contact time is
+          only needed for g-force.
+        </Text>
+
+        <View style={styles.form}>
+          {renderInput({
+            label: "Contact time after landing in seconds",
+            placeholder: "Example: 0.3",
+            value: contactTime,
+            onChangeText: setContactTime,
+            keyboardType: "decimal-pad",
+            numeric: true,
+          })}
+        </View>
+
+        {showMissingMessage ? (
+          <View style={styles.emptyResults}>
+            <Text style={styles.emptyResultsText}>{calculationMessage}</Text>
+          </View>
+        ) : (
+          <View style={styles.resultsList}>
+            {trialResults.map((result) => (
+              <View key={result.key} style={styles.resultCard}>
+                <View style={styles.resultHeader}>
+                  <Text style={styles.resultTitle}>{result.label}</Text>
+                  <Text style={styles.resultBadge}>Local</Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>Final velocity</Text>
+                  <Text style={styles.resultValue}>
+                    {formatNumber(result.finalVelocity, " m/s")}
+                  </Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>Acceleration</Text>
+                  <Text style={styles.resultValue}>
+                    {formatNumber(result.acceleration, " m/s2")}
+                  </Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>Net force</Text>
+                  <Text style={styles.resultValue}>
+                    {formatNumber(result.netForce, " N")}
+                  </Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>Weight</Text>
+                  <Text style={styles.resultValue}>
+                    {formatNumber(result.weight, " N")}
+                  </Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>Drag force</Text>
+                  <Text style={styles.resultValue}>
+                    {formatNumber(result.dragForce, " N")}
+                  </Text>
+                </View>
+                <View style={styles.resultRow}>
+                  <Text style={styles.resultName}>G-force</Text>
+                  <Text style={styles.resultValue}>
+                    {hasInvalidContactTime
+                      ? "Enter valid contact time"
+                      : result.gForce === null
+                        ? "Add contact time"
+                        : formatNumber(result.gForce, " g")}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderReflectionStep = () => (
+    <View style={styles.stepCard}>
+      <Text style={styles.cardLabel}>Reflection & Save</Text>
+      <Text style={styles.cardTitle}>What Did You Learn?</Text>
+      <Text style={styles.cardText}>
+        Explain which parachute worked best and what you would change next.
+      </Text>
+      <View style={styles.form}>
+        {renderInput({
+          label: "Reflection",
+          placeholder: "Write your final reflection here.",
+          value: reflection,
+          onChangeText: setReflection,
+          multiline: true,
+        })}
+      </View>
+      {successMessage ? (
+        <Text style={styles.success}>{successMessage}</Text>
+      ) : null}
+    </View>
+  );
+
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 0:
+        return renderOverviewStep();
+      case 1:
+        return renderEquipmentStep();
+      case 2:
+        return renderInstructionsStep();
+      case 3:
+        return renderVideoStep();
+      case 4:
+        return renderExperimentStep();
+      case 5:
+        return renderPhysicsStep();
+      case 6:
+        return renderReflectionStep();
+      default:
+        return renderOverviewStep();
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -270,243 +526,59 @@ export default function ParachuteChallenge() {
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableWithoutFeedback
-          onPress={Keyboard.dismiss}
-          accessible={false}
-        >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <View>
-            <TopBar title="Parachute Drop Challenge" eyebrow="Engineering + Physics" />
+            <TopBar
+              title="Parachute Drop Challenge"
+              eyebrow="Engineering + Physics"
+            />
 
-            <View style={styles.hero}>
-              <View style={styles.heroMetaRow}>
-                <Text style={styles.category}>Engineering + Physics</Text>
-                <Text style={styles.heroPill}>Design Lab</Text>
+            <View style={styles.progressCard}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressStep}>
+                  Step {currentStep + 1} of {wizardSteps.length}
+                </Text>
+                <Text style={styles.progressTitle}>
+                  {wizardSteps[currentStep]}
+                </Text>
               </View>
-              <Text style={styles.title}>Parachute Drop Challenge</Text>
-              <Text style={styles.heroText}>
-                Design, drop, measure, and improve a parachute so it falls slowly
-                and safely.
-              </Text>
-              <View style={styles.heroStats}>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatLabel}>Goal</Text>
-                  <Text style={styles.heroStatValue}>Slow landing</Text>
-                </View>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatLabel}>Method</Text>
-                  <Text style={styles.heroStatValue}>Test and improve</Text>
-                </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: progressPercent }]} />
               </View>
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Overview</Text>
-              <Text style={styles.cardTitle}>Your Mission</Text>
-              <Text style={styles.cardText}>
-                Explore how canopy size, shape, and string length affect air
-                resistance. Your goal is to create a parachute that gives the test
-                weight the longest controlled descent.
-              </Text>
-            </View>
+            {renderStepContent()}
 
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Physics Concepts</Text>
-              <Text style={styles.cardTitle}>Forces in Flight</Text>
-              <View style={styles.conceptGrid}>
-                {physicsConcepts.map((concept) => (
-                  <View key={concept.title} style={styles.conceptTile}>
-                    <Text style={styles.conceptTitle}>{concept.title}</Text>
-                    <Text style={styles.conceptText}>{concept.detail}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            <View style={styles.navRow}>
+              {isFirstStep ? (
+                <View style={styles.navSpacer} />
+              ) : (
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={goBack}
+                  activeOpacity={0.86}
+                >
+                  <Text style={styles.backButtonText}>Back</Text>
+                </TouchableOpacity>
+              )}
 
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Student Focus</Text>
-              <Text style={styles.cardTitle}>Learning Pathways</Text>
-              <View style={styles.focusList}>
-                {studentFocus.map((item) => (
-                  <View key={item.group} style={styles.focusRow}>
-                    <Text style={styles.focusBadge}>{item.group}</Text>
-                    <Text style={styles.focusText}>{item.detail}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Curriculum Links</Text>
-              <Text style={styles.cardTitle}>Skills and Outcomes</Text>
-              <View style={styles.curriculumList}>
-                {curriculumLinks.map((item) => (
-                  <View key={item} style={styles.curriculumRow}>
-                    <View style={styles.curriculumDot} />
-                    <Text style={styles.curriculumText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Equipment</Text>
-              <Text style={styles.cardTitle}>Materials</Text>
-              <View style={styles.equipmentGrid}>
-                {equipment.map((item) => (
-                  <View key={item} style={styles.equipmentPill}>
-                    <View style={styles.dot} />
-                    <Text style={styles.equipmentText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Instructions</Text>
-              <Text style={styles.cardTitle}>Build and Test</Text>
-              <View style={styles.steps}>
-                {instructions.map((instruction, index) => {
-                  const isComplete = completedSteps.includes(index);
-
-                  return (
-                    <TouchableOpacity
-                      key={instruction}
-                      style={[styles.stepRow, isComplete && styles.stepRowDone]}
-                      onPress={() => toggleStep(index)}
-                      activeOpacity={0.82}
-                    >
-                      <View
-                        style={[styles.stepNumber, isComplete && styles.stepNumberDone]}
-                      >
-                        <Text
-                          style={[
-                            styles.stepNumberText,
-                            isComplete && styles.stepNumberTextDone,
-                          ]}
-                        >
-                          {index + 1}
-                        </Text>
-                      </View>
-                      <Text style={[styles.stepText, isComplete && styles.stepTextDone]}>
-                        {instruction}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={[styles.card, styles.formCard]}>
-              <Text style={styles.cardLabel}>Experiment Form</Text>
-              <Text style={styles.cardTitle}>Record Your Test</Text>
-              <Text style={styles.cardText}>
-                Capture your prediction, timings, and reflections during the
-                parachute trials.
-              </Text>
-
-              <View style={styles.form}>
-                {experimentFields.map((field) => (
-                  <View key={field.key} style={styles.field}>
-                    <Text style={styles.inputLabel}>{field.label}</Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        field.multiline && styles.textArea,
-                      ]}
-                      placeholder={field.placeholder}
-                      placeholderTextColor="#8a9584"
-                      value={experiment[field.key]}
-                      onChangeText={(value) => updateExperiment(field.key, value)}
-                      keyboardType={field.keyboardType || "default"}
-                      multiline={field.multiline}
-                      textAlignVertical={field.multiline ? "top" : "center"}
-                      returnKeyType={field.multiline ? "default" : "next"}
-                    />
-                    {field.numeric &&
-                    experiment[field.key].trim() &&
-                    parsePositiveNumber(experiment[field.key]).status ===
-                      "invalid" ? (
-                      <Text style={styles.validationText}>
-                        Enter a positive number.
-                      </Text>
-                    ) : null}
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.resultsSection}>
-                <Text style={styles.resultsLabel}>Local Physics Results</Text>
-                {trialResults.length === 0 ? (
-                  <View style={styles.emptyResults}>
-                    <Text style={styles.emptyResultsText}>
-                      {calculationMessage}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.resultsList}>
-                    {trialResults.map((result) => (
-                      <View key={result.key} style={styles.resultCard}>
-                        <View style={styles.resultHeader}>
-                          <Text style={styles.resultTitle}>{result.label}</Text>
-                          <Text style={styles.resultBadge}>Calculated</Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>Final velocity</Text>
-                          <Text style={styles.resultValue}>
-                            {formatNumber(result.finalVelocity, " m/s")}
-                          </Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>Acceleration</Text>
-                          <Text style={styles.resultValue}>
-                            {formatNumber(result.acceleration, " m/s2")}
-                          </Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>Net force</Text>
-                          <Text style={styles.resultValue}>
-                            {formatNumber(result.netForce, " N")}
-                          </Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>Weight</Text>
-                          <Text style={styles.resultValue}>
-                            {formatNumber(result.weight, " N")}
-                          </Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>Drag force</Text>
-                          <Text style={styles.resultValue}>
-                            {formatNumber(result.dragForce, " N")}
-                          </Text>
-                        </View>
-                        <View style={styles.resultRow}>
-                          <Text style={styles.resultName}>G-force</Text>
-                          <Text style={styles.resultValue}>
-                            {hasInvalidContact
-                              ? "Enter positive contact time"
-                              : result.gForce === null
-                              ? "Enter contact time"
-                              : formatNumber(result.gForce, " g")}
-                          </Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              {successMessage ? (
-                <Text style={styles.success}>{successMessage}</Text>
-              ) : null}
-
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveExperiment}
-                activeOpacity={0.86}
-              >
-                <Text style={styles.saveButtonText}>Save Experiment</Text>
-              </TouchableOpacity>
+              {isLastStep ? (
+                <TouchableOpacity
+                  style={styles.nextButton}
+                  onPress={handleSaveExperiment}
+                  activeOpacity={0.86}
+                >
+                  <Text style={styles.nextButtonText}>Save Experiment</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.nextButton}
+                  onPress={goNext}
+                  activeOpacity={0.86}
+                >
+                  <Text style={styles.nextButtonText}>Next</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -529,79 +601,44 @@ const styles = StyleSheet.create({
     paddingTop: 58,
     paddingBottom: 34,
   },
-  hero: {
+  progressCard: {
     backgroundColor: "#172218",
-    borderRadius: 32,
-    padding: 24,
+    borderRadius: 28,
+    padding: 20,
     marginBottom: 16,
   },
-  heroMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+  progressHeader: {
+    marginBottom: 14,
   },
-  category: {
+  progressStep: {
     color: "#f0ff75",
     fontSize: 12,
     fontWeight: "900",
-    letterSpacing: 1.3,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
-    flex: 1,
   },
-  heroPill: {
+  progressTitle: {
+    color: "#ffffff",
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  progressTrack: {
+    height: 10,
+    backgroundColor: "#314333",
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
     backgroundColor: "#f0ff75",
     borderRadius: 999,
-    color: "#172218",
-    fontSize: 12,
-    fontWeight: "900",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
   },
-  title: {
-    marginTop: 12,
-    color: "#ffffff",
-    fontSize: 36,
-    lineHeight: 41,
-    fontWeight: "900",
-  },
-  heroText: {
-    marginTop: 12,
-    color: "#dbe7d4",
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: "700",
-  },
-  heroStats: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 20,
-  },
-  heroStat: {
-    flex: 1,
-    backgroundColor: "#243326",
-    borderColor: "#314333",
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: 14,
-  },
-  heroStatLabel: {
-    color: "#aebda7",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  heroStatValue: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  card: {
+  stepCard: {
     backgroundColor: "#ffffff",
     borderRadius: 28,
-    padding: 21,
+    padding: 22,
     marginBottom: 16,
     elevation: 3,
     shadowColor: "#20351f",
@@ -614,15 +651,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1.2,
+    marginBottom: 8,
     textTransform: "uppercase",
-    marginBottom: 7,
+  },
+  pageTitle: {
+    color: "#172218",
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  categoryText: {
+    color: "#1565c0",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+    marginBottom: 14,
   },
   cardTitle: {
     color: "#172218",
-    fontSize: 23,
-    lineHeight: 29,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "900",
-    marginBottom: 9,
+    marginBottom: 10,
   },
   cardText: {
     color: "#5f6f52",
@@ -631,129 +682,80 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   conceptGrid: {
-    gap: 12,
-    marginTop: 14,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 18,
   },
-  conceptTile: {
+  conceptPill: {
+    backgroundColor: "#e8f5e9",
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  conceptText: {
+    color: "#244b2a",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  focusBox: {
     backgroundColor: "#f8fbf4",
     borderColor: "#dfe8d8",
     borderWidth: 1,
     borderRadius: 20,
-    padding: 15,
+    padding: 16,
+    marginTop: 18,
   },
-  conceptTitle: {
+  focusTitle: {
     color: "#172218",
     fontSize: 17,
     fontWeight: "900",
-    marginBottom: 5,
-  },
-  conceptText: {
-    color: "#5f6f52",
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "700",
-  },
-  focusList: {
-    gap: 12,
-    marginTop: 14,
-  },
-  focusRow: {
-    backgroundColor: "#e8f5e9",
-    borderRadius: 20,
-    minHeight: 72,
-    padding: 15,
-  },
-  focusBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#2e7d32",
-    borderRadius: 999,
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "900",
-    overflow: "hidden",
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    marginBottom: 6,
   },
   focusText: {
-    color: "#244b2a",
+    color: "#5f6f52",
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
+  },
+  list: {
+    gap: 12,
     marginTop: 10,
   },
-  curriculumList: {
-    gap: 11,
-    marginTop: 14,
-  },
-  curriculumRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f8fbf4",
-    borderRadius: 18,
-    minHeight: 50,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  curriculumDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: "#1565c0",
-    marginRight: 11,
-  },
-  curriculumText: {
-    flex: 1,
-    color: "#172218",
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: "800",
-  },
-  equipmentGrid: {
-    gap: 10,
-    marginTop: 12,
-  },
-  equipmentPill: {
+  listRow: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#f8fbf4",
     borderColor: "#dfe8d8",
     borderWidth: 1,
     borderRadius: 18,
-    minHeight: 50,
+    minHeight: 54,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
     backgroundColor: "#2e7d32",
-    marginRight: 10,
+    marginRight: 11,
   },
-  equipmentText: {
+  listText: {
     flex: 1,
     color: "#172218",
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 23,
     fontWeight: "800",
   },
-  steps: {
-    gap: 12,
-    marginTop: 12,
-  },
-  stepRow: {
+  instructionRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     backgroundColor: "#f8fbf4",
     borderColor: "#dfe8d8",
     borderWidth: 1,
     borderRadius: 20,
-    minHeight: 66,
+    minHeight: 68,
     padding: 15,
-  },
-  stepRowDone: {
-    backgroundColor: "#dcfce7",
-    borderColor: "#bbf7d0",
   },
   stepNumber: {
     width: 40,
@@ -764,35 +766,52 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-  stepNumberDone: {
-    backgroundColor: "#2e7d32",
-  },
   stepNumberText: {
     color: "#ffffff",
     fontSize: 15,
     fontWeight: "900",
   },
-  stepNumberTextDone: {
-    color: "#ffffff",
-  },
-  stepText: {
+  instructionText: {
     flex: 1,
     color: "#172218",
     fontSize: 16,
     lineHeight: 23,
     fontWeight: "800",
   },
-  stepTextDone: {
-    color: "#166534",
-  },
-  formCard: {
-    backgroundColor: "#fbfdf7",
-    borderColor: "#dfe8d8",
+  videoBox: {
+    backgroundColor: "#edf6ff",
+    borderColor: "#cfe7ff",
     borderWidth: 1,
+    borderRadius: 22,
+    minHeight: 92,
+    justifyContent: "center",
+    padding: 18,
+    marginTop: 18,
+  },
+  videoStatus: {
+    color: "#17456b",
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  secondaryAction: {
+    alignItems: "center",
+    backgroundColor: "#f0ff75",
+    borderRadius: 20,
+    justifyContent: "center",
+    minHeight: 56,
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+  secondaryActionText: {
+    color: "#172218",
+    fontSize: 16,
+    fontWeight: "900",
   },
   form: {
-    marginTop: 20,
     gap: 16,
+    marginTop: 18,
   },
   field: {
     gap: 9,
@@ -803,55 +822,49 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#dfe8d8",
     backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
     borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingVertical: 14,
-    minHeight: 54,
+    borderWidth: 1,
     color: "#172218",
     fontSize: 16,
     fontWeight: "700",
+    minHeight: 56,
+    paddingHorizontal: 15,
+    paddingVertical: 14,
   },
   textArea: {
-    minHeight: 112,
     lineHeight: 23,
+    minHeight: 118,
   },
   validationText: {
     color: "#9f1d14",
     fontSize: 13,
     fontWeight: "800",
   },
-  resultsSection: {
-    marginTop: 22,
-  },
-  resultsLabel: {
-    color: "#172218",
-    fontSize: 17,
-    fontWeight: "900",
-    marginBottom: 12,
-  },
   emptyResults: {
     backgroundColor: "#fff8e1",
     borderColor: "#f6d365",
-    borderWidth: 1,
     borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 18,
     padding: 15,
   },
   emptyResultsText: {
     color: "#7a4f01",
     fontSize: 15,
     fontWeight: "900",
+    lineHeight: 21,
   },
   resultsList: {
     gap: 12,
+    marginTop: 18,
   },
   resultCard: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "#fbfdf7",
     borderColor: "#dfe8d8",
-    borderWidth: 1,
     borderRadius: 22,
+    borderWidth: 1,
     padding: 16,
   },
   resultHeader: {
@@ -859,7 +872,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   resultTitle: {
     flex: 1,
@@ -901,26 +914,49 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   success: {
-    marginTop: 18,
     backgroundColor: "#dcfce7",
-    color: "#166534",
     borderRadius: 16,
-    padding: 13,
+    color: "#166534",
     fontSize: 15,
     fontWeight: "900",
+    marginTop: 18,
+    padding: 13,
   },
-  saveButton: {
-    backgroundColor: "#2e7d32",
-    borderRadius: 20,
+  navRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  navSpacer: {
+    flex: 1,
+  },
+  backButton: {
     alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderRadius: 20,
+    borderWidth: 1,
+    flex: 1,
     justifyContent: "center",
     minHeight: 58,
-    paddingVertical: 17,
-    marginTop: 18,
   },
-  saveButtonText: {
-    color: "#ffffff",
-    fontSize: 17,
+  backButtonText: {
+    color: "#172218",
+    fontSize: 16,
     fontWeight: "900",
+  },
+  nextButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 20,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: 14,
+  },
+  nextButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
   },
 });
