@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -11,6 +11,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { Audio } from "expo-av";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
 
@@ -56,6 +57,11 @@ const soundLevelGuide = [
   { range: "100+ dB", description: "serious hearing risk" },
 ];
 
+const estimateDbFromMetering = (metering) => {
+  const normalized = Math.max(0, Math.min(1, (metering + 80) / 80));
+  return Math.round(30 + normalized * 70);
+};
+
 export default function SoundPollutionHunter() {
   const [currentStep, setCurrentStep] = useState(0);
   const [prediction, setPrediction] = useState("");
@@ -66,11 +72,25 @@ export default function SoundPollutionHunter() {
   const [notes, setNotes] = useState("");
   const [reflection, setReflection] = useState("");
   const [earMuffsAnswer, setEarMuffsAnswer] = useState("");
-  const [demoReading, setDemoReading] = useState("");
+  const [recording, setRecording] = useState(null);
+  const [isMeasuring, setIsMeasuring] = useState(false);
+  const [liveEstimatedDb, setLiveEstimatedDb] = useState(null);
+  const [savedMeasurement, setSavedMeasurement] = useState("");
+  const [permissionMessage, setPermissionMessage] = useState("");
+  const [measurementError, setMeasurementError] = useState("");
+  const recordingRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
+
+  useEffect(() => {
+    return () => {
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+      }
+    };
+  }, []);
 
   const goBack = () => {
     Keyboard.dismiss();
@@ -80,6 +100,83 @@ export default function SoundPollutionHunter() {
   const goNext = () => {
     Keyboard.dismiss();
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
+  };
+
+  const handleRecordingStatus = (status) => {
+    if (typeof status.metering === "number") {
+      setLiveEstimatedDb(estimateDbFromMetering(status.metering));
+    }
+  };
+
+  const startMeasuring = async () => {
+    setMeasurementError("");
+
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        setPermissionMessage("Microphone permission was not granted.");
+        return;
+      }
+
+      setPermissionMessage("Microphone permission granted.");
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        {
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+          isMeteringEnabled: true,
+        },
+        handleRecordingStatus,
+        300,
+      );
+
+      recordingRef.current = newRecording;
+      setRecording(newRecording);
+      setIsMeasuring(true);
+      setSavedMeasurement("");
+    } catch (_error) {
+      setMeasurementError("Unable to start microphone measurement.");
+    }
+  };
+
+  const stopMeasuring = async () => {
+    setMeasurementError("");
+
+    if (!recordingRef.current && !recording) {
+      setIsMeasuring(false);
+      return;
+    }
+
+    try {
+      const activeRecording = recordingRef.current || recording;
+      activeRecording.setOnRecordingStatusUpdate(null);
+      await activeRecording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    } catch (_error) {
+      setMeasurementError("Measurement stopped. Start again if needed.");
+    } finally {
+      recordingRef.current = null;
+      setRecording(null);
+      setIsMeasuring(false);
+    }
+  };
+
+  const saveMeasurement = () => {
+    Keyboard.dismiss();
+
+    if (liveEstimatedDb === null) {
+      setMeasurementError("Start measuring before saving a reading.");
+      return;
+    }
+
+    const savedValue = `${liveEstimatedDb}`;
+    setEstimatedDbResult(savedValue);
+    setSavedMeasurement(`${savedValue} dB estimate saved locally.`);
+    setMeasurementError("");
   };
 
   const renderInput = ({
@@ -160,22 +257,61 @@ export default function SoundPollutionHunter() {
 
   const renderSoundMeter = () => (
     <View style={styles.card}>
-      <Text style={styles.cardLabel}>Sound Meter Placeholder</Text>
-      <Text style={styles.cardTitle}>Microphone Coming Later</Text>
+      <Text style={styles.cardLabel}>Sound Meter</Text>
+      <Text style={styles.cardTitle}>Estimated Sound Level</Text>
       <Text style={styles.cardText}>
-        A live sound meter can be added in a later sprint. This prototype keeps
-        the activity frontend-only and does not access the microphone.
+        Use the phone microphone to estimate the current sound level. Phone
+        microphones are not laboratory calibrated, so treat this as a classroom
+        estimate rather than a certified measurement.
       </Text>
       <View style={styles.meterBox}>
-        <Text style={styles.meterValue}>{demoReading || "--"}</Text>
-        <Text style={styles.meterLabel}>Demo reading</Text>
+        <Text style={styles.meterValue}>
+          {liveEstimatedDb === null ? "--" : liveEstimatedDb}
+        </Text>
+        <Text style={styles.meterLabel}>Estimated dB</Text>
       </View>
+
+      {permissionMessage ? (
+        <Text style={styles.statusText}>{permissionMessage}</Text>
+      ) : null}
+      {measurementError ? (
+        <Text style={styles.errorText}>{measurementError}</Text>
+      ) : null}
+      {savedMeasurement ? (
+        <Text style={styles.savedText}>{savedMeasurement}</Text>
+      ) : null}
+
+      <View style={styles.measurementActions}>
+        <TouchableOpacity
+          style={[
+            styles.measureButton,
+            isMeasuring && styles.measureButtonDisabled,
+          ]}
+          onPress={startMeasuring}
+          activeOpacity={0.86}
+          disabled={isMeasuring}
+        >
+          <Text style={styles.measureButtonText}>Start Measuring</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.stopButton,
+            !isMeasuring && styles.measureButtonDisabled,
+          ]}
+          onPress={stopMeasuring}
+          activeOpacity={0.86}
+          disabled={!isMeasuring}
+        >
+          <Text style={styles.stopButtonText}>Stop Measuring</Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity
         style={styles.secondaryAction}
-        onPress={() => setDemoReading("Moderate")}
+        onPress={saveMeasurement}
         activeOpacity={0.86}
       >
-        <Text style={styles.secondaryActionText}>Add Demo Reading</Text>
+        <Text style={styles.secondaryActionText}>Save Measurement</Text>
       </TouchableOpacity>
 
       <View style={styles.guideCard}>
@@ -541,6 +677,76 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 6,
     textTransform: "uppercase",
+  },
+  statusText: {
+    backgroundColor: "#e8f5e9",
+    borderRadius: 16,
+    color: "#166534",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 14,
+    padding: 12,
+  },
+  errorText: {
+    backgroundColor: "#ffe3df",
+    borderRadius: 16,
+    color: "#9f1d14",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 14,
+    padding: 12,
+  },
+  savedText: {
+    backgroundColor: "#edf6ff",
+    borderRadius: 16,
+    color: "#17456b",
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
+    marginTop: 14,
+    padding: 12,
+  },
+  measurementActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  measureButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 56,
+    paddingHorizontal: 12,
+  },
+  stopButton: {
+    alignItems: "center",
+    backgroundColor: "#ffe3df",
+    borderColor: "#ffb4aa",
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 56,
+    paddingHorizontal: 12,
+  },
+  measureButtonDisabled: {
+    opacity: 0.48,
+  },
+  measureButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  stopButtonText: {
+    color: "#9f1d14",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
   },
   secondaryAction: {
     alignItems: "center",
