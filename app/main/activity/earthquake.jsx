@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Vibration,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -39,6 +40,9 @@ const instructions = [
   "Activate vibration mode in the STEMM app.",
   "Modify the structure to reduce movement.",
 ];
+
+const EARTHQUAKE_TEST_SECONDS = 10;
+const EARTHQUAKE_VIBRATION_PATTERN = [0, 250, 120, 420, 140, 300];
 
 const resultFields = [
   {
@@ -110,6 +114,11 @@ export default function EarthquakeResistantStructure() {
   const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const [testMessage, setTestMessage] = useState("");
+  const testIntervalRef = useRef(null);
+  const testTimeoutRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
@@ -139,13 +148,84 @@ export default function EarthquakeResistantStructure() {
     surprises: setSurprises,
   };
 
+  useEffect(() => {
+    return () => {
+      if (testIntervalRef.current) {
+        clearInterval(testIntervalRef.current);
+      }
+
+      if (testTimeoutRef.current) {
+        clearTimeout(testTimeoutRef.current);
+      }
+
+      Vibration.cancel();
+    };
+  }, []);
+
+  const clearTestTimers = () => {
+    if (testIntervalRef.current) {
+      clearInterval(testIntervalRef.current);
+      testIntervalRef.current = null;
+    }
+
+    if (testTimeoutRef.current) {
+      clearTimeout(testTimeoutRef.current);
+      testTimeoutRef.current = null;
+    }
+  };
+
+  const completeEarthquakeTest = () => {
+    clearTestTimers();
+    Vibration.cancel();
+    setIsTesting(false);
+    setSecondsRemaining(0);
+    setTestMessage("Test complete");
+  };
+
+  const startEarthquakeTest = () => {
+    Keyboard.dismiss();
+    clearTestTimers();
+    Vibration.cancel();
+    Vibration.vibrate(EARTHQUAKE_VIBRATION_PATTERN, true);
+    setIsTesting(true);
+    setSecondsRemaining(EARTHQUAKE_TEST_SECONDS);
+    setTestMessage("Earthquake simulation running");
+
+    testIntervalRef.current = setInterval(() => {
+      setSecondsRemaining((remaining) => Math.max(remaining - 1, 0));
+    }, 1000);
+
+    testTimeoutRef.current = setTimeout(() => {
+      completeEarthquakeTest();
+    }, EARTHQUAKE_TEST_SECONDS * 1000);
+  };
+
+  const stopEarthquakeTest = () => {
+    Keyboard.dismiss();
+    clearTestTimers();
+    Vibration.cancel();
+    setIsTesting(false);
+    setSecondsRemaining(0);
+    setTestMessage("Test stopped");
+  };
+
   const goBack = () => {
     Keyboard.dismiss();
+    clearTestTimers();
+    Vibration.cancel();
+    setIsTesting(false);
+    setSecondsRemaining(0);
+    setTestMessage("");
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
   const goNext = () => {
     Keyboard.dismiss();
+    clearTestTimers();
+    Vibration.cancel();
+    setIsTesting(false);
+    setSecondsRemaining(0);
+    setTestMessage("");
     setSuccessMessage("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
@@ -231,20 +311,44 @@ export default function EarthquakeResistantStructure() {
 
   const renderVibrationTest = () => (
     <View style={styles.card}>
-      <Text style={styles.sectionKicker}>Placeholder</Text>
+      <Text style={styles.sectionKicker}>Device demo</Text>
       <Text style={styles.sectionTitle}>Vibration Test</Text>
       <Text style={styles.bodyText}>
-        Motion sensor and vibration features will be added in a later sprint.
-        For now, use this step as a teacher-guided demo space and record your
-        observations on the Results step.
+        Start a 10-second vibration pattern to simulate shaking. Watch how your
+        structure moves, then record your observations on the Results step.
       </Text>
       <View style={styles.placeholderBox}>
         <Text style={styles.placeholderIcon}>~</Text>
-        <Text style={styles.placeholderTitle}>No sensors active yet</Text>
-        <Text style={styles.placeholderText}>
-          This screen does not use accelerometer, gyroscope, vibration, storage,
-          or backend logic.
+        <Text style={styles.placeholderTitle}>
+          {isTesting ? `${secondsRemaining}s remaining` : "Ready to test"}
         </Text>
+        <Text style={styles.placeholderText}>
+          {testMessage ||
+            "This demo uses phone vibration only. No sensors, storage, or backend logic are active."}
+        </Text>
+      </View>
+      <View style={styles.testButtonRow}>
+        <TouchableOpacity
+          style={[
+            styles.testButton,
+            isTesting && styles.testButtonDisabled,
+          ]}
+          onPress={startEarthquakeTest}
+          disabled={isTesting}
+        >
+          <Text style={styles.testButtonText}>Start Earthquake Test</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.stopButton,
+            !isTesting && styles.testButtonDisabled,
+          ]}
+          onPress={stopEarthquakeTest}
+          disabled={!isTesting}
+        >
+          <Text style={styles.stopButtonText}>Stop Test</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -552,6 +656,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     marginTop: 8,
+  },
+  testButtonRow: {
+    gap: 10,
+    marginTop: 16,
+  },
+  testButton: {
+    minHeight: 56,
+    backgroundColor: "#172218",
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  stopButton: {
+    minHeight: 56,
+    backgroundColor: "#fff1ef",
+    borderColor: "#ffb4aa",
+    borderWidth: 1,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  testButtonDisabled: {
+    opacity: 0.55,
+  },
+  testButtonText: {
+    color: "#f0ff75",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  stopButtonText: {
+    color: "#9f1d14",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
   },
   field: {
     marginTop: 14,
