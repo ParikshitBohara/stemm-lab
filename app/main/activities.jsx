@@ -1,10 +1,11 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useRouter } from "expo-router";
 import TopBar from "../../components/TopBar";
 import BottomNav from "../../components/BottomNav";
 
 const activities = [
-  { title: "Parachute Drop", area: "Engineering", accent: "#dcfce7" },
+  { title: "Parachute Drop", area: "Engineering", accent: "#dcfce7", path: "/main/activity/parachute" },
   { title: "Sound Pollution Hunter", area: "Environment", accent: "#dbeafe" },
   { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
   { title: "Earthquake Structure", area: "Earth Science", accent: "#ede9fe" },
@@ -14,6 +15,8 @@ const activities = [
 ];
 
 export default function Activities() {
+  const router = useRouter();
+
   return (
     <View style={styles.wrapper}>
       <StatusBar style="dark" />
@@ -27,7 +30,12 @@ export default function Activities() {
 
         <View style={styles.list}>
           {activities.map((activity, index) => (
-            <TouchableOpacity key={activity.title} style={styles.card} activeOpacity={0.82}>
+            <TouchableOpacity
+              key={activity.title}
+              style={styles.card}
+              activeOpacity={0.82}
+              onPress={activity.path ? () => router.push(activity.path) : undefined}
+            >
               <View style={[styles.badge, { backgroundColor: activity.accent }]}>
                 <Text style={styles.badgeText}>{String(index + 1).padStart(2, "0")}</Text>
               </View>
