@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Accelerometer,
+} from "expo-sensors";
+import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -43,6 +46,13 @@ const instructions = [
 
 const EARTHQUAKE_TEST_SECONDS = 10;
 const EARTHQUAKE_VIBRATION_PATTERN = [0, 250, 120, 420, 140, 300];
+const SENSOR_UPDATE_MS = 120;
+
+const designOptions = [
+  { key: "design1Outcome", label: "Design 1" },
+  { key: "design2Outcome", label: "Design 2" },
+  { key: "design3Outcome", label: "Design 3" },
+];
 
 const resultFields = [
   {
@@ -117,8 +127,23 @@ export default function EarthquakeResistantStructure() {
   const [isTesting, setIsTesting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [testMessage, setTestMessage] = useState("");
+  const [activeDesignKey, setActiveDesignKey] = useState("design1Outcome");
+  const [currentMovement, setCurrentMovement] = useState(null);
+  const [maxMovement, setMaxMovement] = useState(null);
+  const [averageMovement, setAverageMovement] = useState(null);
+  const [tiltAngle, setTiltAngle] = useState(null);
   const testIntervalRef = useRef(null);
   const testTimeoutRef = useRef(null);
+  const accelerometerSubscriptionRef = useRef(null);
+  const movementSamplesRef = useRef([]);
+  const movementTotalRef = useRef(0);
+  const maxMovementRef = useRef(0);
+  const latestMovementRef = useRef({
+    current: null,
+    max: null,
+    average: null,
+    tilt: null,
+  });
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
@@ -158,6 +183,10 @@ export default function EarthquakeResistantStructure() {
         clearTimeout(testTimeoutRef.current);
       }
 
+      if (accelerometerSubscriptionRef.current) {
+        accelerometerSubscriptionRef.current.remove();
+      }
+
       Vibration.cancel();
     };
   }, []);
@@ -174,44 +203,152 @@ export default function EarthquakeResistantStructure() {
     }
   };
 
+  const stopAccelerometer = () => {
+    if (accelerometerSubscriptionRef.current) {
+      accelerometerSubscriptionRef.current.remove();
+      accelerometerSubscriptionRef.current = null;
+    }
+  };
+
+  const resetMovementStats = () => {
+    movementSamplesRef.current = [];
+    movementTotalRef.current = 0;
+    maxMovementRef.current = 0;
+    latestMovementRef.current = {
+      current: null,
+      max: null,
+      average: null,
+      tilt: null,
+    };
+    setCurrentMovement(null);
+    setMaxMovement(null);
+    setAverageMovement(null);
+    setTiltAngle(null);
+  };
+
+  const formatMovement = (value) =>
+    value === null ? "--" : value.toFixed(2);
+
+  const formatTilt = (value) =>
+    value === null ? "--" : `${value.toFixed(1)}°`;
+
+  const saveMovementToActiveDesign = (statusLabel) => {
+    const latestResult = latestMovementRef.current;
+
+    if (latestResult.average === null) {
+      return;
+    }
+
+    const savedText = `${statusLabel}: current ${formatMovement(
+      latestResult.current,
+    )}, max ${formatMovement(latestResult.max)}, average ${formatMovement(
+      latestResult.average,
+    )}, tilt ${formatTilt(latestResult.tilt)}. Classroom estimate from phone sensor data.`;
+
+    fieldSetters[activeDesignKey](savedText);
+  };
+
+  const handleAccelerometerUpdate = ({ x, y, z }) => {
+    const movementMagnitude = Math.sqrt(x * x + y * y + z * z);
+    const tilt = Math.atan2(x, Math.sqrt(y * y + z * z)) * (180 / Math.PI);
+    const nextSamples = [
+      ...movementSamplesRef.current,
+      { x, y, z, movementMagnitude, tilt },
+    ];
+    const nextTotal = movementTotalRef.current + movementMagnitude;
+    const nextMax = Math.max(maxMovementRef.current, movementMagnitude);
+    const nextAverage = nextTotal / nextSamples.length;
+
+    movementSamplesRef.current = nextSamples;
+    movementTotalRef.current = nextTotal;
+    maxMovementRef.current = nextMax;
+    latestMovementRef.current = {
+      current: movementMagnitude,
+      max: nextMax,
+      average: nextAverage,
+      tilt,
+    };
+
+    setCurrentMovement(movementMagnitude);
+    setMaxMovement(nextMax);
+    setAverageMovement(nextAverage);
+    setTiltAngle(tilt);
+  };
+
   const completeEarthquakeTest = () => {
     clearTestTimers();
+    stopAccelerometer();
     Vibration.cancel();
     setIsTesting(false);
     setSecondsRemaining(0);
     setTestMessage("Test complete");
+    saveMovementToActiveDesign("Test complete");
   };
 
-  const startEarthquakeTest = () => {
+  const startEarthquakeTest = async () => {
     Keyboard.dismiss();
     clearTestTimers();
+    stopAccelerometer();
     Vibration.cancel();
-    Vibration.vibrate(EARTHQUAKE_VIBRATION_PATTERN, true);
-    setIsTesting(true);
-    setSecondsRemaining(EARTHQUAKE_TEST_SECONDS);
-    setTestMessage("Earthquake simulation running");
+    resetMovementStats();
+    setTestMessage("");
 
-    testIntervalRef.current = setInterval(() => {
-      setSecondsRemaining((remaining) => Math.max(remaining - 1, 0));
-    }, 1000);
+    try {
+      const isAvailable = await Accelerometer.isAvailableAsync();
 
-    testTimeoutRef.current = setTimeout(() => {
-      completeEarthquakeTest();
-    }, EARTHQUAKE_TEST_SECONDS * 1000);
+      if (!isAvailable) {
+        setTestMessage("Accelerometer is not available on this device.");
+        return;
+      }
+
+      const permission = await Accelerometer.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        setTestMessage("Motion sensor permission was not granted.");
+        return;
+      }
+
+      Accelerometer.setUpdateInterval(SENSOR_UPDATE_MS);
+      accelerometerSubscriptionRef.current = Accelerometer.addListener(
+        handleAccelerometerUpdate,
+      );
+
+      Vibration.vibrate(EARTHQUAKE_VIBRATION_PATTERN, true);
+      setIsTesting(true);
+      setSecondsRemaining(EARTHQUAKE_TEST_SECONDS);
+      setTestMessage("Earthquake simulation running");
+
+      testIntervalRef.current = setInterval(() => {
+        setSecondsRemaining((remaining) => Math.max(remaining - 1, 0));
+      }, 1000);
+
+      testTimeoutRef.current = setTimeout(() => {
+        completeEarthquakeTest();
+      }, EARTHQUAKE_TEST_SECONDS * 1000);
+    } catch (_error) {
+      stopAccelerometer();
+      Vibration.cancel();
+      setIsTesting(false);
+      setSecondsRemaining(0);
+      setTestMessage("Unable to start the movement sensor test.");
+    }
   };
 
   const stopEarthquakeTest = () => {
     Keyboard.dismiss();
     clearTestTimers();
+    stopAccelerometer();
     Vibration.cancel();
     setIsTesting(false);
     setSecondsRemaining(0);
     setTestMessage("Test stopped");
+    saveMovementToActiveDesign("Test stopped");
   };
 
   const goBack = () => {
     Keyboard.dismiss();
     clearTestTimers();
+    stopAccelerometer();
     Vibration.cancel();
     setIsTesting(false);
     setSecondsRemaining(0);
@@ -222,6 +359,7 @@ export default function EarthquakeResistantStructure() {
   const goNext = () => {
     Keyboard.dismiss();
     clearTestTimers();
+    stopAccelerometer();
     Vibration.cancel();
     setIsTesting(false);
     setSecondsRemaining(0);
@@ -317,6 +455,36 @@ export default function EarthquakeResistantStructure() {
         Start a 10-second vibration pattern to simulate shaking. Watch how your
         structure moves, then record your observations on the Results step.
       </Text>
+      <Text style={styles.sensorNote}>
+        This is a classroom estimate using phone sensor data, not a laboratory
+        measurement.
+      </Text>
+      <View style={styles.designSelector}>
+        <Text style={styles.selectorLabel}>Save result to</Text>
+        <View style={styles.designButtonRow}>
+          {designOptions.map((design) => (
+            <TouchableOpacity
+              key={design.key}
+              style={[
+                styles.designButton,
+                activeDesignKey === design.key && styles.designButtonActive,
+              ]}
+              onPress={() => setActiveDesignKey(design.key)}
+              disabled={isTesting}
+            >
+              <Text
+                style={[
+                  styles.designButtonText,
+                  activeDesignKey === design.key &&
+                    styles.designButtonTextActive,
+                ]}
+              >
+                {design.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
       <View style={styles.placeholderBox}>
         <Text style={styles.placeholderIcon}>~</Text>
         <Text style={styles.placeholderTitle}>
@@ -324,8 +492,28 @@ export default function EarthquakeResistantStructure() {
         </Text>
         <Text style={styles.placeholderText}>
           {testMessage ||
-            "This demo uses phone vibration only. No sensors, storage, or backend logic are active."}
+            "This demo uses phone vibration and accelerometer readings only. No storage or backend logic is active."}
         </Text>
+      </View>
+      <View style={styles.metricGrid}>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Live movement score</Text>
+          <Text style={styles.metricValue}>{formatMovement(currentMovement)}</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Max movement</Text>
+          <Text style={styles.metricValue}>{formatMovement(maxMovement)}</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Average movement</Text>
+          <Text style={styles.metricValue}>
+            {formatMovement(averageMovement)}
+          </Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Approx. tilt angle</Text>
+          <Text style={styles.metricValue}>{formatTilt(tiltAngle)}</Text>
+        </View>
       </View>
       <View style={styles.testButtonRow}>
         <TouchableOpacity
@@ -656,6 +844,85 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     marginTop: 8,
+  },
+  sensorNote: {
+    backgroundColor: "#fff8dc",
+    color: "#6d5816",
+    borderColor: "#f5df8b",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 13,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "800",
+    marginTop: 14,
+  },
+  designSelector: {
+    marginTop: 16,
+  },
+  selectorLabel: {
+    color: "#344234",
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  designButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  designButton: {
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#d7e3cf",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 13,
+  },
+  designButtonActive: {
+    backgroundColor: "#172218",
+    borderColor: "#172218",
+  },
+  designButtonText: {
+    color: "#344234",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  designButtonTextActive: {
+    color: "#f0ff75",
+  },
+  metricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16,
+  },
+  metricCard: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minHeight: 88,
+    backgroundColor: "#f6f8ef",
+    borderColor: "#d7e3cf",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 14,
+    justifyContent: "center",
+  },
+  metricLabel: {
+    color: "#5f6f52",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  metricValue: {
+    color: "#172218",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "900",
+    marginTop: 5,
   },
   testButtonRow: {
     gap: 10,
