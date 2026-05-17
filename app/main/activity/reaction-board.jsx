@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -45,6 +45,10 @@ const instructions = [
 export default function ReactionBoardChallenge() {
   const [currentStep, setCurrentStep] = useState(0);
   const [tapReactionStatus, setTapReactionStatus] = useState("");
+  const [tapAttempts, setTapAttempts] = useState([]);
+  const [isTapWaiting, setIsTapWaiting] = useState(false);
+  const [isTargetVisible, setIsTargetVisible] = useState(false);
+  const [tapMessage, setTapMessage] = useState("");
   const [swapHandsStatus, setSwapHandsStatus] = useState("");
   const [tracingStatus, setTracingStatus] = useState("");
   const [bestPhase, setBestPhase] = useState("");
@@ -52,20 +56,114 @@ export default function ReactionBoardChallenge() {
   const [notes, setNotes] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const reactionTimerRef = useRef(null);
+  const targetShownAtRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
+  const bestTapTime =
+    tapAttempts.length > 0 ? Math.min(...tapAttempts) : null;
+  const averageTapTime =
+    tapAttempts.length > 0
+      ? Math.round(
+          tapAttempts.reduce((total, attempt) => total + attempt, 0) /
+            tapAttempts.length,
+        )
+      : null;
+
+  const clearReactionTimer = () => {
+    if (reactionTimerRef.current) {
+      clearTimeout(reactionTimerRef.current);
+      reactionTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearReactionTimer();
+    };
+  }, []);
 
   const goBack = () => {
     Keyboard.dismiss();
+    clearReactionTimer();
+    setIsTapWaiting(false);
+    setIsTargetVisible(false);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
   const goNext = () => {
     Keyboard.dismiss();
+    clearReactionTimer();
+    setIsTapWaiting(false);
+    setIsTargetVisible(false);
     setSuccessMessage("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
+  };
+
+  const startTapAttempt = () => {
+    if (tapAttempts.length >= 3) {
+      setTapMessage("All three attempts are saved. Reset to try again.");
+      return;
+    }
+
+    clearReactionTimer();
+    setIsTargetVisible(false);
+    setIsTapWaiting(true);
+    setTapMessage("Wait for the target...");
+    targetShownAtRef.current = null;
+
+    const delay = Math.floor(1000 + Math.random() * 2001);
+
+    reactionTimerRef.current = setTimeout(() => {
+      targetShownAtRef.current = Date.now();
+      setIsTapWaiting(false);
+      setIsTargetVisible(true);
+      setTapMessage("Tap the target now!");
+      reactionTimerRef.current = null;
+    }, delay);
+  };
+
+  const handleEarlyTap = () => {
+    if (!isTapWaiting || isTargetVisible) {
+      return;
+    }
+
+    clearReactionTimer();
+    targetShownAtRef.current = null;
+    setIsTapWaiting(false);
+    setIsTargetVisible(false);
+    setTapMessage("Too early, try again");
+  };
+
+  const handleTargetTap = () => {
+    if (!isTargetVisible || !targetShownAtRef.current || tapAttempts.length >= 3) {
+      return;
+    }
+
+    const reactionTime = Date.now() - targetShownAtRef.current;
+    const attemptNumber = tapAttempts.length + 1;
+    const nextAttempts = [...tapAttempts, reactionTime];
+
+    setTapAttempts(nextAttempts);
+    setIsTargetVisible(false);
+    targetShownAtRef.current = null;
+    setTapMessage(`Attempt ${attemptNumber} saved: ${reactionTime} ms`);
+
+    if (nextAttempts.length === 3) {
+      setTapReactionStatus("Tap reaction completed for demo.");
+    }
+  };
+
+  const resetTapAttempts = () => {
+    clearReactionTimer();
+    targetShownAtRef.current = null;
+    setTapAttempts([]);
+    setIsTapWaiting(false);
+    setIsTargetVisible(false);
+    setTapReactionStatus("");
+    setTapMessage("Attempts reset.");
   };
 
   const saveActivity = () => {
@@ -176,6 +274,93 @@ export default function ReactionBoardChallenge() {
     </View>
   );
 
+  const renderTapReaction = () => (
+    <View style={styles.card}>
+      <Text style={styles.cardLabel}>Phase 1</Text>
+      <Text style={styles.cardTitle}>Tap Reaction</Text>
+      <Text style={styles.cardText}>
+        Press Start, wait for the target to appear, then tap it as quickly as
+        you can. If you tap before the target appears, the attempt is cancelled.
+      </Text>
+
+      <View style={styles.reactionStats}>
+        <View style={styles.reactionStatTile}>
+          <Text style={styles.summaryLabel}>Best time</Text>
+          <Text style={styles.summaryValue}>
+            {bestTapTime === null ? "--" : `${bestTapTime} ms`}
+          </Text>
+        </View>
+        <View style={styles.reactionStatTile}>
+          <Text style={styles.summaryLabel}>Average time</Text>
+          <Text style={styles.summaryValue}>
+            {averageTapTime === null ? "--" : `${averageTapTime} ms`}
+          </Text>
+        </View>
+      </View>
+
+      {isTargetVisible ? (
+        <TouchableOpacity
+          style={styles.targetButton}
+          onPress={handleTargetTap}
+          activeOpacity={0.82}
+        >
+          <Text style={styles.targetButtonText}>Tap!</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[
+            styles.reactionPad,
+            isTapWaiting && styles.reactionPadWaiting,
+          ]}
+          onPress={handleEarlyTap}
+          activeOpacity={isTapWaiting ? 0.82 : 1}
+          disabled={!isTapWaiting}
+        >
+          <Text style={styles.reactionPadText}>
+            {isTapWaiting ? "Wait for green..." : "Target will appear here"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {tapMessage ? <Text style={styles.tapMessage}>{tapMessage}</Text> : null}
+
+      <View style={styles.tapActions}>
+        <TouchableOpacity
+          style={[
+            styles.startButton,
+            (isTapWaiting || isTargetVisible || tapAttempts.length >= 3) &&
+              styles.disabledButton,
+          ]}
+          onPress={startTapAttempt}
+          activeOpacity={0.86}
+          disabled={isTapWaiting || isTargetVisible || tapAttempts.length >= 3}
+        >
+          <Text style={styles.startButtonText}>Start</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.resetButton}
+          onPress={resetTapAttempts}
+          activeOpacity={0.86}
+        >
+          <Text style={styles.resetButtonText}>Reset</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.attemptList}>
+        {[0, 1, 2].map((attemptIndex) => (
+          <View key={attemptIndex} style={styles.attemptRow}>
+            <Text style={styles.attemptLabel}>Attempt {attemptIndex + 1}</Text>
+            <Text style={styles.attemptValue}>
+              {tapAttempts[attemptIndex]
+                ? `${tapAttempts[attemptIndex]} ms`
+                : "Not saved"}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
   const renderResults = () => (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>Results & Reflection</Text>
@@ -189,7 +374,11 @@ export default function ReactionBoardChallenge() {
         <View style={styles.summaryTile}>
           <Text style={styles.summaryLabel}>Tap Reaction</Text>
           <Text style={styles.summaryValue}>
-            {tapReactionStatus ? "Complete" : "Not marked"}
+            {tapReactionStatus
+              ? "Complete"
+              : tapAttempts.length > 0
+              ? `${tapAttempts.length}/3 attempts`
+              : "Not started"}
           </Text>
         </View>
         <View style={styles.summaryTile}>
@@ -257,14 +446,7 @@ export default function ReactionBoardChallenge() {
       case 2:
         return renderInstructions();
       case 3:
-        return renderPhasePlaceholder({
-          label: "Phase 1",
-          title: "Tap Reaction Placeholder",
-          text:
-            "Later, this phase can become a timed tap board. For now, students can complete the task with a partner or paper template.",
-          status: tapReactionStatus,
-          onPress: () => setTapReactionStatus("Tap reaction completed for demo."),
-        });
+        return renderTapReaction();
       case 4:
         return renderPhasePlaceholder({
           label: "Phase 2",
@@ -553,6 +735,132 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     color: "#172218",
     fontSize: 16,
+    fontWeight: "900",
+  },
+  reactionStats: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  reactionStatTile: {
+    flex: 1,
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+  },
+  reactionPad: {
+    alignItems: "center",
+    backgroundColor: "#edf6ff",
+    borderColor: "#cfe7ff",
+    borderWidth: 1,
+    borderRadius: 26,
+    justifyContent: "center",
+    minHeight: 150,
+    marginTop: 18,
+    padding: 18,
+  },
+  reactionPadWaiting: {
+    backgroundColor: "#fff8e1",
+    borderColor: "#f6d365",
+  },
+  reactionPadText: {
+    color: "#17456b",
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  targetButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 30,
+    justifyContent: "center",
+    minHeight: 150,
+    marginTop: 18,
+    padding: 18,
+  },
+  targetButtonText: {
+    color: "#ffffff",
+    fontSize: 34,
+    fontWeight: "900",
+  },
+  tapMessage: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 16,
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 21,
+    marginTop: 14,
+    padding: 12,
+    textAlign: "center",
+  },
+  tapActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  startButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 20,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: 14,
+  },
+  startButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  resetButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderRadius: 20,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: 14,
+  },
+  resetButtonText: {
+    color: "#172218",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  disabledButton: {
+    opacity: 0.48,
+  },
+  attemptList: {
+    gap: 10,
+    marginTop: 18,
+  },
+  attemptRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 16,
+    gap: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  attemptLabel: {
+    color: "#5f6f52",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  attemptValue: {
+    color: "#172218",
+    fontSize: 15,
     fontWeight: "900",
   },
   summaryGrid: {
