@@ -41,6 +41,21 @@ const instructions = [
   "Suggest one way to make the loudest area more comfortable.",
 ];
 
+const soundLevelGuide = [
+  { range: "0-30 dB", description: "quiet" },
+  { range: "30-60 dB", description: "normal classroom" },
+  { range: "60-85 dB", description: "busy traffic/vacuum" },
+  {
+    range: "85-90 dB",
+    description: "hearing damage possible after long exposure",
+  },
+  {
+    range: "90-100 dB",
+    description: "hearing damage likely after short exposure",
+  },
+  { range: "100+ dB", description: "serious hearing risk" },
+];
+
 export default function SoundPollutionHunter() {
   const [currentStep, setCurrentStep] = useState(0);
   const [prediction, setPrediction] = useState("");
@@ -162,6 +177,16 @@ export default function SoundPollutionHunter() {
       >
         <Text style={styles.secondaryActionText}>Add Demo Reading</Text>
       </TouchableOpacity>
+
+      <View style={styles.guideCard}>
+        <Text style={styles.guideTitle}>Sound Level Guide</Text>
+        {soundLevelGuide.map((item) => (
+          <View key={item.range} style={styles.guideRow}>
+            <Text style={styles.guideRange}>{item.range}</Text>
+            <Text style={styles.guideText}>{item.description}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 
@@ -530,6 +555,42 @@ const styles = StyleSheet.create({
     color: "#172218",
     fontSize: 16,
     fontWeight: "900",
+  },
+  guideCard: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 18,
+  },
+  guideTitle: {
+    color: "#172218",
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 10,
+  },
+  guideRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderTopColor: "#edf2e8",
+    borderTopWidth: 1,
+    gap: 12,
+    minHeight: 44,
+    paddingVertical: 10,
+  },
+  guideRange: {
+    width: 88,
+    color: "#1565c0",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  guideText: {
+    flex: 1,
+    color: "#172218",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
   },
   resultPreview: {
     backgroundColor: "#f8fbf4",
