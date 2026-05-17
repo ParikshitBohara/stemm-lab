@@ -1,9 +1,14 @@
 import { useState } from "react";
 import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -26,8 +31,69 @@ const instructions = [
   "Adjust one design feature, then test again and compare the results.",
 ];
 
+const experimentFields = [
+  {
+    key: "prediction",
+    label: "Prediction",
+    placeholder: "What do you think will happen before testing?",
+    multiline: true,
+  },
+  {
+    key: "dropHeight",
+    label: "Drop Height",
+    placeholder: "Example: 2 metres",
+  },
+  {
+    key: "baselineTime",
+    label: "Baseline Time",
+    placeholder: "Example: 1.8 seconds",
+    keyboardType: "decimal-pad",
+  },
+  {
+    key: "prototypeOneTime",
+    label: "Prototype 1 Time",
+    placeholder: "Example: 2.1 seconds",
+    keyboardType: "decimal-pad",
+  },
+  {
+    key: "prototypeTwoTime",
+    label: "Prototype 2 Time",
+    placeholder: "Example: 2.4 seconds",
+    keyboardType: "decimal-pad",
+  },
+  {
+    key: "prototypeThreeTime",
+    label: "Prototype 3 Time",
+    placeholder: "Example: 2.6 seconds",
+    keyboardType: "decimal-pad",
+  },
+  {
+    key: "landingNotes",
+    label: "Landing Notes",
+    placeholder: "Was the landing stable, tilted, fast, or slow?",
+    multiline: true,
+  },
+  {
+    key: "reflection",
+    label: "Reflection",
+    placeholder: "What would you improve next?",
+    multiline: true,
+  },
+];
+
 export default function ParachuteChallenge() {
   const [completedSteps, setCompletedSteps] = useState([]);
+  const [experiment, setExperiment] = useState({
+    prediction: "",
+    dropHeight: "",
+    baselineTime: "",
+    prototypeOneTime: "",
+    prototypeTwoTime: "",
+    prototypeThreeTime: "",
+    landingNotes: "",
+    reflection: "",
+  });
+  const [successMessage, setSuccessMessage] = useState("");
 
   const toggleStep = (stepIndex) => {
     setCompletedSteps((current) =>
@@ -37,85 +103,155 @@ export default function ParachuteChallenge() {
     );
   };
 
+  const updateExperiment = (key, value) => {
+    setExperiment((current) => ({ ...current, [key]: value }));
+    setSuccessMessage("");
+  };
+
+  const handleSaveExperiment = () => {
+    Keyboard.dismiss();
+    setSuccessMessage("Experiment saved for demo.");
+  };
+
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <StatusBar style="dark" />
       <ScrollView
+        style={styles.screen}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="handled"
       >
-        <TopBar title="Parachute Drop Challenge" eyebrow="Engineering + Physics" />
+        <TouchableWithoutFeedback
+          onPress={Keyboard.dismiss}
+          accessible={false}
+        >
+          <View>
+            <TopBar title="Parachute Drop Challenge" eyebrow="Engineering + Physics" />
 
-        <View style={styles.hero}>
-          <Text style={styles.category}>Engineering + Physics</Text>
-          <Text style={styles.title}>Parachute Drop Challenge</Text>
-          <Text style={styles.heroText}>
-            Design, drop, measure, and improve a parachute so it falls slowly
-            and safely.
-          </Text>
-        </View>
+            <View style={styles.hero}>
+              <Text style={styles.category}>Engineering + Physics</Text>
+              <Text style={styles.title}>Parachute Drop Challenge</Text>
+              <Text style={styles.heroText}>
+                Design, drop, measure, and improve a parachute so it falls slowly
+                and safely.
+              </Text>
+            </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Overview</Text>
-          <Text style={styles.cardTitle}>Your Mission</Text>
-          <Text style={styles.cardText}>
-            Explore how canopy size, shape, and string length affect air
-            resistance. Your goal is to create a parachute that gives the test
-            weight the longest controlled descent.
-          </Text>
-        </View>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Overview</Text>
+              <Text style={styles.cardTitle}>Your Mission</Text>
+              <Text style={styles.cardText}>
+                Explore how canopy size, shape, and string length affect air
+                resistance. Your goal is to create a parachute that gives the test
+                weight the longest controlled descent.
+              </Text>
+            </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Equipment</Text>
-          <View style={styles.equipmentGrid}>
-            {equipment.map((item) => (
-              <View key={item} style={styles.equipmentPill}>
-                <View style={styles.dot} />
-                <Text style={styles.equipmentText}>{item}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Instructions</Text>
-          <View style={styles.steps}>
-            {instructions.map((instruction, index) => {
-              const isComplete = completedSteps.includes(index);
-
-              return (
-                <TouchableOpacity
-                  key={instruction}
-                  style={[styles.stepRow, isComplete && styles.stepRowDone]}
-                  onPress={() => toggleStep(index)}
-                  activeOpacity={0.82}
-                >
-                  <View
-                    style={[styles.stepNumber, isComplete && styles.stepNumberDone]}
-                  >
-                    <Text
-                      style={[
-                        styles.stepNumberText,
-                        isComplete && styles.stepNumberTextDone,
-                      ]}
-                    >
-                      {index + 1}
-                    </Text>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Equipment</Text>
+              <View style={styles.equipmentGrid}>
+                {equipment.map((item) => (
+                  <View key={item} style={styles.equipmentPill}>
+                    <View style={styles.dot} />
+                    <Text style={styles.equipmentText}>{item}</Text>
                   </View>
-                  <Text style={[styles.stepText, isComplete && styles.stepTextDone]}>
-                    {instruction}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Instructions</Text>
+              <View style={styles.steps}>
+                {instructions.map((instruction, index) => {
+                  const isComplete = completedSteps.includes(index);
+
+                  return (
+                    <TouchableOpacity
+                      key={instruction}
+                      style={[styles.stepRow, isComplete && styles.stepRowDone]}
+                      onPress={() => toggleStep(index)}
+                      activeOpacity={0.82}
+                    >
+                      <View
+                        style={[styles.stepNumber, isComplete && styles.stepNumberDone]}
+                      >
+                        <Text
+                          style={[
+                            styles.stepNumberText,
+                            isComplete && styles.stepNumberTextDone,
+                          ]}
+                        >
+                          {index + 1}
+                        </Text>
+                      </View>
+                      <Text style={[styles.stepText, isComplete && styles.stepTextDone]}>
+                        {instruction}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Experiment Form</Text>
+              <Text style={styles.cardTitle}>Record Your Test</Text>
+              <Text style={styles.cardText}>
+                Capture your prediction, timings, and reflections during the
+                parachute trials.
+              </Text>
+
+              <View style={styles.form}>
+                {experimentFields.map((field) => (
+                  <View key={field.key} style={styles.field}>
+                    <Text style={styles.inputLabel}>{field.label}</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        field.multiline && styles.textArea,
+                      ]}
+                      placeholder={field.placeholder}
+                      placeholderTextColor="#8a9584"
+                      value={experiment[field.key]}
+                      onChangeText={(value) => updateExperiment(field.key, value)}
+                      keyboardType={field.keyboardType || "default"}
+                      multiline={field.multiline}
+                      textAlignVertical={field.multiline ? "top" : "center"}
+                      returnKeyType={field.multiline ? "default" : "next"}
+                    />
+                  </View>
+                ))}
+              </View>
+
+              {successMessage ? (
+                <Text style={styles.success}>{successMessage}</Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveExperiment}
+                activeOpacity={0.86}
+              >
+                <Text style={styles.saveButtonText}>Save Experiment</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+    backgroundColor: "#f6f8ef",
+  },
   screen: {
     flex: 1,
     backgroundColor: "#f6f8ef",
@@ -253,5 +389,53 @@ const styles = StyleSheet.create({
   },
   stepTextDone: {
     color: "#166534",
+  },
+  form: {
+    marginTop: 18,
+    gap: 14,
+  },
+  field: {
+    gap: 8,
+  },
+  inputLabel: {
+    color: "#172218",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#dfe8d8",
+    backgroundColor: "#f8fbf4",
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  textArea: {
+    minHeight: 96,
+    lineHeight: 21,
+  },
+  success: {
+    marginTop: 16,
+    backgroundColor: "#dcfce7",
+    color: "#166534",
+    borderRadius: 16,
+    padding: 12,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  saveButton: {
+    backgroundColor: "#2e7d32",
+    borderRadius: 18,
+    alignItems: "center",
+    paddingVertical: 16,
+    marginTop: 16,
+  },
+  saveButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
   },
 });
