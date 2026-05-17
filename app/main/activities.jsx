@@ -6,7 +6,7 @@ import BottomNav from "../../components/BottomNav";
 
 const activities = [
   { title: "Parachute Drop", area: "Engineering", accent: "#dcfce7", path: "/main/activity/parachute" },
-  { title: "Sound Pollution Hunter", area: "Environment", accent: "#dbeafe" },
+  { title: "Sound Pollution Hunter", area: "Environment", accent: "#dbeafe", path: "/main/activity/sound" },
   { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
   { title: "Earthquake Structure", area: "Earth Science", accent: "#ede9fe" },
   { title: "Human Performance Lab", area: "Biomechanics", accent: "#ffe4e6" },
