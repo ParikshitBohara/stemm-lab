@@ -13,36 +13,57 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { addDoc, collection } from "firebase/firestore";
 import BottomNav from "../../components/BottomNav";
+import { auth, db } from "../../firebase/firebaseConfig";
 
 export default function TeamSetup() {
   const router = useRouter();
+
   const [teamName, setTeamName] = useState("");
   const [memberOne, setMemberOne] = useState("");
   const [memberTwo, setMemberTwo] = useState("");
   const [grade, setGrade] = useState("");
   const [error, setError] = useState("");
 
-  const handleSaveTeam = () => {
+  // Save team setup data to Firestore before moving to home screen
+  const handleSaveTeam = async () => {
     Keyboard.dismiss();
     setError("");
 
     if (!teamName.trim() || !memberOne.trim() || !grade.trim()) {
-      setError(
-        "Please add a team name, at least one member, and a year level.",
-      );
+      setError("Please add a team name, at least one member, and a year level.");
       return;
     }
 
-    router.replace({
-      pathname: "/main/home",
-      params: {
+    try {
+      const currentUser = auth.currentUser;
+
+      const teamCode =
+        teamName.trim().toUpperCase().replace(/\s+/g, "-") + "-" + Date.now();
+
+      await addDoc(collection(db, "teams"), {
         teamName: teamName.trim(),
-        memberOne: memberOne.trim(),
-        memberTwo: memberTwo.trim(),
-        grade: grade.trim(),
-      },
-    });
+        members: [memberOne.trim(), memberTwo.trim()].filter(Boolean),
+        yearLevel: grade.trim(),
+        teamCode: teamCode,
+        createdBy: currentUser ? currentUser.uid : "unknown",
+        createdAt: new Date().toISOString(),
+      });
+
+      router.replace({
+        pathname: "/main/home",
+        params: {
+          teamName: teamName.trim(),
+          memberOne: memberOne.trim(),
+          memberTwo: memberTwo.trim(),
+          grade: grade.trim(),
+        },
+      });
+    } catch (error) {
+      console.log("Error saving team:", error);
+      setError("Team could not be saved. Please try again.");
+    }
   };
 
   return (
