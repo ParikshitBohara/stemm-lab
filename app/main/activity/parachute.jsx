@@ -14,7 +14,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
-
+import { saveActivityResult } from "../../../firebase/saveActivityResult";
 const GRAVITY = 9.8;
 
 const wizardSteps = [
@@ -237,15 +237,44 @@ export default function ParachuteChallenge() {
     setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1));
   };
 
-  const handleSaveExperiment = () => {
+  
+  const handleSaveExperiment = async () => {
     Keyboard.dismiss();
-    setSuccessMessage("Parachute experiment saved for demo.");
+
+    try {
+        await saveActivityResult({
+          teamId: "demo-team",
+          teamName: "Gravity Squad",
+          activityName: "Parachute Drop Challenge",
+
+          resultData: {
+            prediction,
+            dropHeight,
+            toyMass,
+            baselineTime,
+            prototype1Time,
+            prototype2Time,
+            prototype3Time,
+            landingNotes,
+            contactTime,
+            videoCaptured: !!videoUri,
+      },
+
+      reflection,
+      score: trialResults.length,
+    });
+
+    setSuccessMessage("Experiment successfully saved to Firestore.");
+
     sendActivitySavedNotification({
       title: "STEMM Lab: Activity saved",
-      body: "Your activity result was saved for demo.",
+      body: "Your parachute activity result was saved.",
     }).catch(() => undefined);
-  };
-
+  } catch (error) {
+    console.log("Error saving experiment:", error);
+    setSuccessMessage("Failed to save experiment.");
+  }
+};
   const renderInput = ({
     label,
     value,

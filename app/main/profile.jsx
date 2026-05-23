@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { signOut } from "firebase/auth";
+import { auth } from "../../firebase/firebaseConfig";
 import {
   Image,
   ScrollView,
@@ -28,8 +30,14 @@ export default function Profile() {
   const [notificationError, setNotificationError] = useState("");
   const [busyNotificationAction, setBusyNotificationAction] = useState("");
 
-  const handleLogout = () => {
-    router.replace("/auth/login");
+  const handleLogout = async () => {
+    try{
+      await signOut(auth);
+    
+      router.replace("/auth/login");
+    } catch(error) {
+      console.log("Logout error:", error);
+    }
   };
 
   const runNotificationAction = async (actionName, action) => {

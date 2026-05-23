@@ -1,27 +1,60 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import BottomNav from "../../components/BottomNav";
+import { auth, db } from "../../firebase/firebaseConfig";
 
 export default function Home() {
   const router = useRouter();
-  const params = useLocalSearchParams();
 
-  const teamName =
-    typeof params.teamName === "string" ? params.teamName : "No team set yet";
-  const memberOne =
-    typeof params.memberOne === "string" ? params.memberOne : "";
-  const memberTwo =
-    typeof params.memberTwo === "string" ? params.memberTwo : "";
-  const grade = typeof params.grade === "string" ? params.grade : "";
+  const [teamData, setTeamData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load saved team data from Firestore for the logged-in user
+  useEffect(() => {
+    const loadTeamData = async () => {
+      try {
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          setLoading(false);
+          return;
+        }
+
+        const teamsQuery = query(
+          collection(db, "teams"),
+          where("createdBy", "==", currentUser.uid),
+        );
+
+        const querySnapshot = await getDocs(teamsQuery);
+
+        if (!querySnapshot.empty) {
+          const firstTeam = querySnapshot.docs[0].data();
+          setTeamData(firstTeam);
+        }
+      } catch (error) {
+        console.log("Error loading team data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTeamData();
+  }, []);
+
+  const teamName = teamData?.teamName || "No team set yet";
+  const members = teamData?.members?.join(" and ") || "";
+  const grade = teamData?.yearLevel || "";
   const hasTeam = teamName !== "No team set yet";
-  const members = [memberOne, memberTwo].filter(Boolean).join(" and ");
 
   return (
     <View style={styles.screen}>
@@ -34,6 +67,13 @@ export default function Home() {
           <Text style={styles.kicker}>STEMM Lab</Text>
           <Text style={styles.title}>Build, test, improve.</Text>
         </View>
+
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="small" />
+            <Text style={styles.loadingText}>Loading team data...</Text>
+          </View>
+        ) : null}
 
         <View style={styles.teamCard}>
           <View>
@@ -49,7 +89,7 @@ export default function Home() {
           </View>
         </View>
 
-        {!hasTeam ? (
+        {!hasTeam && !loading ? (
           <Text style={styles.notice}>
             Set up your team first so activity results can be linked to the
             correct group.
@@ -58,7 +98,7 @@ export default function Home() {
 
         <View style={styles.grid}>
           <View style={styles.metricCard}>
-            <Text style={styles.metricNumber}>7</Text>
+            <Text style={styles.metricNumber}>5</Text>
             <Text style={styles.metricLabel}>Activities</Text>
           </View>
           <View style={styles.metricCard}>
@@ -132,6 +172,19 @@ const styles = StyleSheet.create({
     color: "#dbe7d4",
     fontSize: 15,
     lineHeight: 22,
+  },
+  loadingCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  loadingText: {
+    color: "#5f6f52",
+    fontWeight: "800",
   },
   teamCard: {
     flexDirection: "row",

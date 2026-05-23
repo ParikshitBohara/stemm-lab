@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect,useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../../firebase/firebaseConfig";
 import {
   ScrollView,
   StyleSheet,
@@ -16,13 +18,7 @@ const tabs = [
   { key: "improved", label: "Most Improved" },
 ];
 
-const overallTeams = [
-  { team: "Gravity Squad", points: 920, activity: "All activities" },
-  { team: "Noise Ninjas", points: 875, activity: "All activities" },
-  { team: "Neuro Sparks", points: 842, activity: "All activities" },
-  { team: "Lab Legends", points: 798, activity: "All activities" },
-  { team: "Data Dashers", points: 756, activity: "All activities" },
-];
+
 
 const activityRankings = [
   {
@@ -97,8 +93,40 @@ function RankingCard({ rank, team, score, activity, scoreLabel = "Points" }) {
 }
 
 export default function Leaderboard() {
+  
   const [activeTab, setActiveTab] = useState("overall");
+  const [overallTeams, setOverallTeams] = useState([]);
+  const [loading, setLoading] = useState(true);
+useEffect(() => {
+  const loadLeaderboard = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "results"));
 
+      const results = [];
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+
+        results.push({
+          team: data.teamName || "Unknown Team",
+          points: data.score || 0,
+          activity: data.activityName || "Unknown Activity",
+        });
+      });
+
+      results.sort((a, b) => b.points - a.points);
+
+      setOverallTeams(results);
+
+    } catch (error) {
+      console.log("Error loading leaderboard:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  loadLeaderboard();
+}, []);
   const renderOverall = () => (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Ranked by total points</Text>
@@ -173,8 +201,7 @@ export default function Leaderboard() {
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>Celebrate progress.</Text>
           <Text style={styles.heroText}>
-            Dummy classroom rankings for demo mode. Scores are local sample data
-            only and are not fetched or saved.
+            Live leaderboard connected to Firestore activity results.
           </Text>
         </View>
 
