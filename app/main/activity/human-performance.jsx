@@ -8,7 +8,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Vibration,
   View,
 } from "react-native";
@@ -1021,59 +1020,58 @@ export default function HumanPerformanceLab() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <StatusBar style="dark" />
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <View style={styles.screen}>
-          <ScrollView
-            contentContainerStyle={styles.container}
-            showsVerticalScrollIndicator={false}
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            keyboardShouldPersistTaps="handled"
-          >
-            <TopBar
-              title="Human Performance Lab"
-              eyebrow="Medical Science + Biomechanics"
-            />
+      <View style={styles.screen}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={Keyboard.dismiss}
+        >
+          <TopBar
+            title="Human Performance Lab"
+            eyebrow="Medical Science + Biomechanics"
+          />
 
-            <View style={styles.progressCard}>
-              <Text style={styles.progressStep}>
-                Step {currentStep + 1} of {steps.length}
-              </Text>
-              <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: progressPercent }]} />
-              </View>
+          <View style={styles.progressCard}>
+            <Text style={styles.progressStep}>
+              Step {currentStep + 1} of {steps.length}
+            </Text>
+            <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: progressPercent }]} />
             </View>
+          </View>
 
-            {renderStep()}
+          {renderStep()}
 
-            <View style={styles.navRow}>
-              {isFirstStep ? (
-                <View style={styles.navSpacer} />
-              ) : (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={goBack}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
-              )}
+          <View style={styles.navRow}>
+            {isFirstStep ? (
+              <View style={styles.navSpacer} />
+            ) : (
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={goBack}
+                activeOpacity={0.86}
+              >
+                <Text style={styles.backButtonText}>Back</Text>
+              </TouchableOpacity>
+            )}
 
-              {isLastStep ? (
-                <View style={styles.navSpacer} />
-              ) : (
-                <TouchableOpacity
-                  style={styles.nextButton}
-                  onPress={goNext}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.nextButtonText}>Next</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
-        </View>
-      </TouchableWithoutFeedback>
+            {isLastStep ? (
+              <View style={styles.navSpacer} />
+            ) : (
+              <TouchableOpacity
+                style={styles.nextButton}
+                onPress={goNext}
+                activeOpacity={0.86}
+              >
+                <Text style={styles.nextButtonText}>Next</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }

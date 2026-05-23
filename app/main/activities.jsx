@@ -10,42 +10,58 @@ import {
 import BottomNav from "../../components/BottomNav";
 import TopBar from "../../components/TopBar";
 
-const activities = [
+const activitySections = [
   {
-    title: "Parachute Drop",
-    area: "Engineering",
-    accent: "#dcfce7",
-    path: "/main/activity/parachute",
+    title: "Engineering Challenges",
+    startNumber: 1,
+    activities: [
+      {
+        title: "Parachute Drop Challenge",
+        area: "Engineering",
+        accent: "#dcfce7",
+        path: "/main/activity/parachute",
+      },
+      {
+        title: "Sound Pollution Hunter",
+        area: "Environment",
+        accent: "#dbeafe",
+        path: "/main/activity/sound",
+      },
+      {
+        title: "Hand Fan Challenge",
+        area: "Physics",
+        accent: "#fef3c7",
+      },
+      {
+        title: "Earthquake-Resistant Structure",
+        area: "Earth Science",
+        accent: "#ede9fe",
+        path: "/main/activity/earthquake",
+      },
+    ],
   },
   {
-    title: "Sound Pollution Hunter",
-    area: "Environment",
-    accent: "#dbeafe",
-    path: "/main/activity/sound",
-  },
-  {
-    title: "Earthquake Structure",
-    area: "Earth Science",
-    accent: "#ede9fe",
-    path: "/main/activity/earthquake",
-  },
-  {
-    title: "Human Performance Lab",
-    area: "Biomechanics",
-    accent: "#ffe4e6",
-    path: "/main/activity/human-performance",
-  },
-  {
-    title: "Reaction Board",
-    area: "Neuroscience",
-    accent: "#ccfbf1",
-    path: "/main/activity/reaction-board",
-  },
-  { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
-  {
-    title: "Breathing Pace Trainer",
-    area: "Medical Science",
-    accent: "#e0f2fe",
+    title: "Health and Medical Sciences",
+    startNumber: 5,
+    activities: [
+      {
+        title: "Human Performance Lab",
+        area: "Biomechanics",
+        accent: "#ffe4e6",
+        path: "/main/activity/human-performance",
+      },
+      {
+        title: "Reaction Board Challenge",
+        area: "Neuroscience",
+        accent: "#ccfbf1",
+        path: "/main/activity/reaction-board",
+      },
+      {
+        title: "Breathing Pace Trainer",
+        area: "Medical Science",
+        accent: "#e0f2fe",
+      },
+    ],
   },
 ];
 
@@ -69,28 +85,49 @@ export default function Activities() {
         </View>
 
         <View style={styles.list}>
-          {activities.map((activity, index) => (
-            <TouchableOpacity
-              key={activity.title}
-              style={styles.card}
-              activeOpacity={0.82}
-              onPress={
-                activity.path ? () => router.push(activity.path) : undefined
-              }
-            >
-              <View
-                style={[styles.badge, { backgroundColor: activity.accent }]}
-              >
-                <Text style={styles.badgeText}>
-                  {String(index + 1).padStart(2, "0")}
-                </Text>
-              </View>
-              <View style={styles.cardText}>
-                <Text style={styles.itemTitle}>{activity.title}</Text>
-                <Text style={styles.itemArea}>{activity.area}</Text>
-              </View>
-              <Text style={styles.chevron}>Start</Text>
-            </TouchableOpacity>
+          {activitySections.map((section) => (
+            <View key={section.title} style={styles.section}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+
+              {section.activities.map((activity, index) => {
+                const isEnabled = !!activity.path;
+
+                return (
+                  <TouchableOpacity
+                    key={activity.title}
+                    style={[styles.card, !isEnabled && styles.disabledCard]}
+                    activeOpacity={isEnabled ? 0.82 : 1}
+                    disabled={!isEnabled}
+                    onPress={
+                      isEnabled ? () => router.push(activity.path) : undefined
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.badge,
+                        { backgroundColor: activity.accent },
+                      ]}
+                    >
+                      <Text style={styles.badgeText}>
+                        {String(section.startNumber + index).padStart(2, "0")}
+                      </Text>
+                    </View>
+                    <View style={styles.cardText}>
+                      <Text style={styles.itemTitle}>{activity.title}</Text>
+                      <Text style={styles.itemArea}>{activity.area}</Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.chevron,
+                        !isEnabled && styles.comingSoonText,
+                      ]}
+                    >
+                      {isEnabled ? "Start" : "Coming Soon"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -129,7 +166,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   list: {
+    gap: 18,
+  },
+  section: {
     gap: 12,
+  },
+  sectionTitle: {
+    color: "#172218",
+    fontSize: 19,
+    fontWeight: "900",
   },
   card: {
     flexDirection: "row",
@@ -142,6 +187,9 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
+  },
+  disabledCard: {
+    opacity: 0.72,
   },
   badge: {
     width: 54,
@@ -173,5 +221,8 @@ const styles = StyleSheet.create({
     color: "#2e7d32",
     fontWeight: "900",
     fontSize: 13,
+  },
+  comingSoonText: {
+    color: "#8a9584",
   },
 });
