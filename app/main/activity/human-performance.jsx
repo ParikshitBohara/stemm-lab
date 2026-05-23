@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -12,7 +12,11 @@ import {
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { Accelerometer } from "expo-sensors";
 import TopBar from "../../../components/TopBar";
+
+const MOVEMENT_TEST_SECONDS = 10;
+const SENSOR_UPDATE_MS = 120;
 
 const steps = [
   "Overview",
@@ -46,16 +50,19 @@ const safetyNotes = [
 
 const movements = [
   {
+    id: "movement1",
     label: "Movement 1",
     title: "Slow arm raise",
     detail: "Lift your arm slowly while keeping control through the full range.",
   },
   {
+    id: "movement2",
     label: "Movement 2",
     title: "Side-to-side reach",
     detail: "Reach gently from side to side while staying balanced.",
   },
   {
+    id: "movement3",
     label: "Movement 3",
     title: "Controlled wrist rotation",
     detail: "Rotate your wrist smoothly without rushing the movement.",
@@ -101,8 +108,37 @@ const resultFields = [
   },
 ];
 
+const getSmoothnessCategory = (averageMovement) => {
+  if (averageMovement === null) {
+    return "No movement data yet";
+  }
+
+  if (averageMovement < 1.25) {
+    return "Smooth and controlled";
+  }
+
+  if (averageMovement < 1.75) {
+    return "Moderate movement";
+  }
+
+  return "Needs more control";
+};
+
+const getSmoothnessScore = (averageMovement) => {
+  if (averageMovement === null) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(115 - averageMovement * 35)));
+};
+
+const formatMovement = (value) => (value === null ? "--" : value.toFixed(2));
+
+const formatScore = (score) => (score === null ? "--" : `${score}/100`);
+
 export default function HumanPerformanceLab() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [activeMovementId, setActiveMovementId] = useState("movement1");
   const [prediction, setPrediction] = useState("");
   const [attempt1Notes, setAttempt1Notes] = useState("");
   const [attempt2Notes, setAttempt2Notes] = useState("");
@@ -112,10 +148,70 @@ export default function HumanPerformanceLab() {
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const [completedSeconds, setCompletedSeconds] = useState(0);
+  const [testMessage, setTestMessage] = useState("");
+  const [currentMovement, setCurrentMovement] = useState(null);
+  const [maxMovement, setMaxMovement] = useState(null);
+  const [averageMovement, setAverageMovement] = useState(null);
+  const [latestResult, setLatestResult] = useState(null);
+  const [savedAttempts, setSavedAttempts] = useState({
+    movement1: null,
+    movement2: null,
+    movement3: null,
+  });
+  const testIntervalRef = useRef(null);
+  const testTimeoutRef = useRef(null);
+  const accelerometerSubscriptionRef = useRef(null);
+  const movementSamplesRef = useRef([]);
+  const movementTotalRef = useRef(0);
+  const maxMovementRef = useRef(0);
+  const testStartedAtRef = useRef(null);
+  const latestMovementRef = useRef({
+    current: null,
+    max: null,
+    average: null,
+    duration: 0,
+  });
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
+  const activeMovement =
+    movements.find((movement) => movement.id === activeMovementId) ||
+    movements[0];
+  const liveScore = getSmoothnessScore(averageMovement);
+  const displayResult =
+    isTesting || averageMovement !== null
+      ? {
+          average: averageMovement,
+          max: maxMovement,
+          duration: completedSeconds,
+          score: liveScore,
+          category: getSmoothnessCategory(averageMovement),
+        }
+      : latestResult;
+  const savedMovementResults = movements
+    .map((movement) => ({
+      ...movement,
+      result: savedAttempts[movement.id],
+    }))
+    .filter((movement) => movement.result);
+  const smoothestMovement =
+    savedMovementResults.length > 0
+      ? savedMovementResults.reduce((best, movement) =>
+          movement.result.average < best.result.average ? movement : best,
+        )
+      : null;
+  const hardestMovement =
+    savedMovementResults.length > 0
+      ? savedMovementResults.reduce((hardest, movement) =>
+          movement.result.average > hardest.result.average
+            ? movement
+            : hardest,
+        )
+      : null;
 
   const fieldValues = {
     prediction,
@@ -135,8 +231,253 @@ export default function HumanPerformanceLab() {
     surprises: setSurprises,
   };
 
+  useEffect(() => {
+    return () => {
+      if (testIntervalRef.current) {
+        clearInterval(testIntervalRef.current);
+      }
+
+      if (testTimeoutRef.current) {
+        clearTimeout(testTimeoutRef.current);
+      }
+
+      if (accelerometerSubscriptionRef.current) {
+        accelerometerSubscriptionRef.current.remove();
+      }
+    };
+  }, []);
+
+  const getElapsedSeconds = () => {
+    if (!testStartedAtRef.current) {
+      return completedSeconds;
+    }
+
+    return Math.min(
+      MOVEMENT_TEST_SECONDS,
+      Math.max(0, Math.round((Date.now() - testStartedAtRef.current) / 1000)),
+    );
+  };
+
+  const clearTestTimers = () => {
+    if (testIntervalRef.current) {
+      clearInterval(testIntervalRef.current);
+      testIntervalRef.current = null;
+    }
+
+    if (testTimeoutRef.current) {
+      clearTimeout(testTimeoutRef.current);
+      testTimeoutRef.current = null;
+    }
+  };
+
+  const stopAccelerometer = () => {
+    if (accelerometerSubscriptionRef.current) {
+      accelerometerSubscriptionRef.current.remove();
+      accelerometerSubscriptionRef.current = null;
+    }
+  };
+
+  const resetLiveMovementStats = () => {
+    movementSamplesRef.current = [];
+    movementTotalRef.current = 0;
+    maxMovementRef.current = 0;
+    latestMovementRef.current = {
+      current: null,
+      max: null,
+      average: null,
+      duration: 0,
+    };
+    setCurrentMovement(null);
+    setMaxMovement(null);
+    setAverageMovement(null);
+    setCompletedSeconds(0);
+    setLatestResult(null);
+  };
+
+  const cleanupMovementTest = () => {
+    clearTestTimers();
+    stopAccelerometer();
+    testStartedAtRef.current = null;
+    setIsTesting(false);
+    setSecondsRemaining(0);
+  };
+
+  const buildMovementResult = (statusLabel) => {
+    const latestMovement = latestMovementRef.current;
+
+    if (latestMovement.average === null) {
+      return null;
+    }
+
+    const duration = latestMovement.duration || getElapsedSeconds();
+    const score = getSmoothnessScore(latestMovement.average);
+
+    return {
+      movementId: activeMovement.id,
+      movementLabel: activeMovement.label,
+      movementTitle: activeMovement.title,
+      current: latestMovement.current,
+      max: latestMovement.max,
+      average: latestMovement.average,
+      duration,
+      score,
+      category: getSmoothnessCategory(latestMovement.average),
+      status: statusLabel,
+    };
+  };
+
+  const completeMovementTest = (statusLabel = "Test complete") => {
+    const result = buildMovementResult(statusLabel);
+
+    cleanupMovementTest();
+
+    if (!result) {
+      setTestMessage("Test finished, but no movement data was captured.");
+      return;
+    }
+
+    setCompletedSeconds(result.duration);
+    setLatestResult(result);
+    setTestMessage(`${activeMovement.label} ${statusLabel.toLowerCase()}.`);
+  };
+
+  const handleAccelerometerUpdate = ({ x, y, z }) => {
+    const movementMagnitude = Math.sqrt(x * x + y * y + z * z);
+    const nextSamples = [
+      ...movementSamplesRef.current,
+      movementMagnitude,
+    ];
+    const nextTotal = movementTotalRef.current + movementMagnitude;
+    const nextMax = Math.max(maxMovementRef.current, movementMagnitude);
+    const nextAverage = nextTotal / nextSamples.length;
+    const duration = getElapsedSeconds();
+
+    movementSamplesRef.current = nextSamples;
+    movementTotalRef.current = nextTotal;
+    maxMovementRef.current = nextMax;
+    latestMovementRef.current = {
+      current: movementMagnitude,
+      max: nextMax,
+      average: nextAverage,
+      duration,
+    };
+
+    setCurrentMovement(movementMagnitude);
+    setMaxMovement(nextMax);
+    setAverageMovement(nextAverage);
+    setCompletedSeconds(duration);
+  };
+
+  const startMovementTest = async () => {
+    Keyboard.dismiss();
+    clearTestTimers();
+    stopAccelerometer();
+    resetLiveMovementStats();
+    setTestMessage("");
+
+    try {
+      const isAvailable = await Accelerometer.isAvailableAsync();
+
+      if (!isAvailable) {
+        setTestMessage("Accelerometer is not available on this device.");
+        return;
+      }
+
+      const permission = await Accelerometer.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        setTestMessage("Motion sensor permission was not granted.");
+        return;
+      }
+
+      Accelerometer.setUpdateInterval(SENSOR_UPDATE_MS);
+      testStartedAtRef.current = Date.now();
+      accelerometerSubscriptionRef.current = Accelerometer.addListener(
+        handleAccelerometerUpdate,
+      );
+
+      setIsTesting(true);
+      setSecondsRemaining(MOVEMENT_TEST_SECONDS);
+      setTestMessage(`${activeMovement.label} test running.`);
+
+      testIntervalRef.current = setInterval(() => {
+        const elapsed = getElapsedSeconds();
+        latestMovementRef.current = {
+          ...latestMovementRef.current,
+          duration: elapsed,
+        };
+        setCompletedSeconds(elapsed);
+        setSecondsRemaining(Math.max(MOVEMENT_TEST_SECONDS - elapsed, 0));
+      }, 1000);
+
+      testTimeoutRef.current = setTimeout(() => {
+        completeMovementTest();
+      }, MOVEMENT_TEST_SECONDS * 1000);
+    } catch (_error) {
+      cleanupMovementTest();
+      setTestMessage("Unable to start the movement sensor test.");
+    }
+  };
+
+  const stopMovementTest = () => {
+    Keyboard.dismiss();
+
+    if (!isTesting) {
+      setTestMessage("Start a movement test before stopping.");
+      return;
+    }
+
+    completeMovementTest("Test stopped");
+  };
+
+  const saveMovementAttempt = () => {
+    Keyboard.dismiss();
+
+    if (isTesting) {
+      setTestMessage("Stop the test before saving this attempt.");
+      return;
+    }
+
+    if (!latestResult || latestResult.movementId !== activeMovement.id) {
+      setTestMessage(`Run ${activeMovement.label} before saving.`);
+      return;
+    }
+
+    setSavedAttempts((attempts) => ({
+      ...attempts,
+      [activeMovement.id]: latestResult,
+    }));
+    setTestMessage(`${activeMovement.label} attempt saved locally.`);
+  };
+
+  const selectMovement = (movementId) => {
+    if (isTesting) {
+      return;
+    }
+
+    setActiveMovementId(movementId);
+    setTestMessage("");
+    setLatestResult(savedAttempts[movementId]);
+    const savedAttempt = savedAttempts[movementId];
+
+    if (savedAttempt) {
+      setCurrentMovement(savedAttempt.current);
+      setMaxMovement(savedAttempt.max);
+      setAverageMovement(savedAttempt.average);
+      setCompletedSeconds(savedAttempt.duration);
+    } else {
+      setCurrentMovement(null);
+      setMaxMovement(null);
+      setAverageMovement(null);
+      setCompletedSeconds(0);
+    }
+  };
+
   const goBack = () => {
     Keyboard.dismiss();
+    if (currentStep === 3) {
+      cleanupMovementTest();
+    }
     setSuccessMessage("");
     setSaveError("");
     setCurrentStep((step) => Math.max(step - 1, 0));
@@ -144,6 +485,9 @@ export default function HumanPerformanceLab() {
 
   const goNext = () => {
     Keyboard.dismiss();
+    if (currentStep === 3) {
+      cleanupMovementTest();
+    }
     setSuccessMessage("");
     setSaveError("");
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
@@ -259,31 +603,204 @@ export default function HumanPerformanceLab() {
     </View>
   );
 
+  const renderComparisonCard = () => (
+    <View style={styles.comparisonCard}>
+      <Text style={styles.comparisonTitle}>Movement Comparison</Text>
+      <Text style={styles.comparisonHint}>
+        Lower average movement usually means the movement was smoother and more
+        controlled.
+      </Text>
+
+      {movements.map((movement) => {
+        const result = savedAttempts[movement.id];
+
+        return (
+          <View key={movement.id} style={styles.comparisonRow}>
+            <Text style={styles.comparisonLabel}>{movement.label} score</Text>
+            <Text style={styles.comparisonValue}>
+              {result
+                ? `${formatScore(result.score)} - ${result.category}`
+                : "Not saved yet"}
+            </Text>
+          </View>
+        );
+      })}
+
+      <View style={styles.bestWorstGrid}>
+        <View style={styles.bestWorstCard}>
+          <Text style={styles.bestWorstLabel}>Smoothest movement</Text>
+          <Text style={styles.bestWorstValue}>
+            {smoothestMovement
+              ? `${smoothestMovement.label}: ${smoothestMovement.title}`
+              : "Save an attempt to compare"}
+          </Text>
+        </View>
+        <View style={styles.bestWorstCard}>
+          <Text style={styles.bestWorstLabel}>Hardest to control</Text>
+          <Text style={styles.bestWorstValue}>
+            {hardestMovement
+              ? `${hardestMovement.label}: ${hardestMovement.title}`
+              : "Save an attempt to compare"}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
   const renderMovementTest = () => (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>Movement Test</Text>
       <Text style={styles.cardTitle}>Guided Stretch Sequence</Text>
       <Text style={styles.cardText}>
-        Complete each movement gently and focus on control. Sensor tracking is
-        intentionally left for the next development step.
+        Choose one movement, run a 10-second sensor test, then save one local
+        attempt for that movement.
       </Text>
 
       <View style={styles.movementList}>
-        {movements.map((movement) => (
-          <View key={movement.label} style={styles.movementCard}>
-            <Text style={styles.movementLabel}>{movement.label}</Text>
-            <Text style={styles.movementTitle}>{movement.title}</Text>
-            <Text style={styles.movementDetail}>{movement.detail}</Text>
-          </View>
-        ))}
+        {movements.map((movement) => {
+          const isActive = movement.id === activeMovement.id;
+          const hasSavedAttempt = !!savedAttempts[movement.id];
+
+          return (
+            <TouchableOpacity
+              key={movement.id}
+              style={[
+                styles.movementCard,
+                isActive && styles.movementCardActive,
+              ]}
+              onPress={() => selectMovement(movement.id)}
+              activeOpacity={0.86}
+              disabled={isTesting}
+            >
+              <View style={styles.movementHeader}>
+                <Text
+                  style={[
+                    styles.movementLabel,
+                    isActive && styles.movementLabelActive,
+                  ]}
+                >
+                  {movement.label}
+                </Text>
+                {hasSavedAttempt ? (
+                  <Text style={styles.savedBadge}>Saved</Text>
+                ) : null}
+              </View>
+              <Text
+                style={[
+                  styles.movementTitle,
+                  isActive && styles.movementTitleActive,
+                ]}
+              >
+                {movement.title}
+              </Text>
+              <Text
+                style={[
+                  styles.movementDetail,
+                  isActive && styles.movementDetailActive,
+                ]}
+              >
+                {movement.detail}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      <View style={styles.placeholderBox}>
-        <Text style={styles.placeholderTitle}>Coming Next</Text>
-        <Text style={styles.placeholderText}>
-          Movement tracking will be enabled in the next development step.
+      <View style={styles.sensorNote}>
+        <Text style={styles.sensorNoteText}>
+          Phone sensor measurements are classroom estimates and may vary between
+          devices.
         </Text>
       </View>
+
+      <View style={styles.livePanel}>
+        <Text style={styles.liveTitle}>{activeMovement.title}</Text>
+        <Text style={styles.liveSubtitle}>
+          {isTesting
+            ? `${secondsRemaining}s remaining`
+            : latestResult?.movementId === activeMovement.id
+              ? latestResult.status
+              : "Ready to test"}
+        </Text>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Smoothness score</Text>
+            <Text style={styles.metricValue}>
+              {formatScore(displayResult?.score ?? null)}
+            </Text>
+            <Text style={styles.metricHint}>
+              {displayResult?.category || "Run a test"}
+            </Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Average movement</Text>
+            <Text style={styles.metricValue}>
+              {formatMovement(displayResult?.average ?? null)}
+            </Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Maximum movement</Text>
+            <Text style={styles.metricValue}>
+              {formatMovement(displayResult?.max ?? null)}
+            </Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Time completed</Text>
+            <Text style={styles.metricValue}>
+              {displayResult?.duration ? `${displayResult.duration}s` : "--"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.currentReadingBox}>
+          <Text style={styles.currentReadingLabel}>Current movement value</Text>
+          <Text style={styles.currentReadingValue}>
+            {formatMovement(currentMovement)}
+          </Text>
+        </View>
+
+        {testMessage ? <Text style={styles.testMessage}>{testMessage}</Text> : null}
+
+        <View style={styles.testButtonRow}>
+          <TouchableOpacity
+            style={[
+              styles.testButton,
+              isTesting && styles.disabledButton,
+            ]}
+            onPress={startMovementTest}
+            activeOpacity={0.86}
+            disabled={isTesting}
+          >
+            <Text style={styles.testButtonText}>Start Movement Test</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.stopButton,
+              !isTesting && styles.disabledButton,
+            ]}
+            onPress={stopMovementTest}
+            activeOpacity={0.86}
+            disabled={!isTesting}
+          >
+            <Text style={styles.stopButtonText}>Stop Test</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.saveAttemptButton,
+            (isTesting || !latestResult) && styles.disabledButton,
+          ]}
+          onPress={saveMovementAttempt}
+          activeOpacity={0.86}
+          disabled={isTesting || !latestResult}
+        >
+          <Text style={styles.saveAttemptText}>Save Attempt</Text>
+        </TouchableOpacity>
+      </View>
+
+      {renderComparisonCard()}
     </View>
   );
 
@@ -292,7 +809,8 @@ export default function HumanPerformanceLab() {
       <Text style={styles.cardLabel}>Results</Text>
       <Text style={styles.cardTitle}>Record Your Observations</Text>
       <Text style={styles.cardText}>
-        Use team observations for now. Sensor values will be added later.
+        Use your saved movement results and team observations. All results stay
+        local in this screen for now.
       </Text>
       <View style={styles.form}>
         {resultFields.map((field) =>
@@ -634,12 +1152,35 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 16,
   },
+  movementCardActive: {
+    backgroundColor: "#172218",
+    borderColor: "#172218",
+  },
+  movementHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
   movementLabel: {
     color: "#2e7d32",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  movementLabelActive: {
+    color: "#f0ff75",
+  },
+  savedBadge: {
+    backgroundColor: "#dcfce7",
+    borderRadius: 999,
+    color: "#166534",
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   movementTitle: {
     color: "#172218",
@@ -648,12 +1189,239 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 5,
   },
+  movementTitleActive: {
+    color: "#ffffff",
+  },
   movementDetail: {
     color: "#5f6f52",
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "700",
     marginTop: 6,
+  },
+  movementDetailActive: {
+    color: "#dbe7d4",
+  },
+  sensorNote: {
+    backgroundColor: "#fff8e1",
+    borderColor: "#f6d365",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 13,
+    marginTop: 16,
+  },
+  sensorNoteText: {
+    color: "#7a4f01",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+  livePanel: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    marginTop: 16,
+  },
+  liveTitle: {
+    color: "#172218",
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: "900",
+  },
+  liveSubtitle: {
+    color: "#5f6f52",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  metricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16,
+  },
+  metricCard: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minHeight: 96,
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 14,
+    justifyContent: "center",
+  },
+  metricLabel: {
+    color: "#5f6f52",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  metricValue: {
+    color: "#172218",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+  metricHint: {
+    color: "#2e7d32",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  currentReadingBox: {
+    backgroundColor: "#edf6ff",
+    borderColor: "#cfe7ff",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 14,
+  },
+  currentReadingLabel: {
+    color: "#42667f",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  currentReadingValue: {
+    color: "#17456b",
+    fontSize: 28,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  testMessage: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 16,
+    color: "#172218",
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
+    marginTop: 14,
+    padding: 12,
+    textAlign: "center",
+  },
+  testButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  testButton: {
+    alignItems: "center",
+    backgroundColor: "#2e7d32",
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: 12,
+  },
+  testButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  stopButton: {
+    alignItems: "center",
+    backgroundColor: "#ffe3df",
+    borderColor: "#ffb4aa",
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: 12,
+  },
+  stopButtonText: {
+    color: "#9f1d14",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  saveAttemptButton: {
+    alignItems: "center",
+    backgroundColor: "#f0ff75",
+    borderRadius: 18,
+    justifyContent: "center",
+    minHeight: 56,
+    marginTop: 12,
+    paddingHorizontal: 16,
+  },
+  saveAttemptText: {
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  comparisonCard: {
+    backgroundColor: "#f6f8ef",
+    borderColor: "#d7e3cf",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    marginTop: 16,
+  },
+  comparisonTitle: {
+    color: "#172218",
+    fontSize: 19,
+    fontWeight: "900",
+  },
+  comparisonHint: {
+    color: "#5f6f52",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    marginTop: 5,
+    marginBottom: 8,
+  },
+  comparisonRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#dfe8d9",
+    paddingVertical: 11,
+  },
+  comparisonLabel: {
+    color: "#344234",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  comparisonValue: {
+    color: "#172218",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  bestWorstGrid: {
+    gap: 10,
+    marginTop: 8,
+  },
+  bestWorstCard: {
+    backgroundColor: "#172218",
+    borderRadius: 18,
+    padding: 14,
+  },
+  bestWorstLabel: {
+    color: "#f0ff75",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  bestWorstValue: {
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+    marginTop: 5,
   },
   placeholderBox: {
     backgroundColor: "#edf6ff",
