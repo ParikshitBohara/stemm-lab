@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Vibration,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -17,6 +18,9 @@ import TopBar from "../../../components/TopBar";
 
 const MOVEMENT_TEST_SECONDS = 10;
 const SENSOR_UPDATE_MS = 120;
+const HIGH_MOVEMENT_THRESHOLD = 1.9;
+const VIBRATION_COOLDOWN_MS = 2200;
+const VIBRATION_PULSE_MS = 90;
 
 const steps = [
   "Overview",
@@ -136,9 +140,25 @@ const formatMovement = (value) => (value === null ? "--" : value.toFixed(2));
 
 const formatScore = (score) => (score === null ? "--" : `${score}/100`);
 
+const createEmptySavedAttempts = () =>
+  movements.reduce((attempts, movement) => {
+    attempts[movement.id] = {
+      withoutFeedback: null,
+      withFeedback: null,
+    };
+    return attempts;
+  }, {});
+
+const getAttemptModeLabel = (feedbackEnabled) =>
+  feedbackEnabled ? "With feedback" : "Without feedback";
+
+const getAttemptModeKey = (feedbackEnabled) =>
+  feedbackEnabled ? "withFeedback" : "withoutFeedback";
+
 export default function HumanPerformanceLab() {
   const [currentStep, setCurrentStep] = useState(0);
   const [activeMovementId, setActiveMovementId] = useState("movement1");
+  const [feedbackEnabled, setFeedbackEnabled] = useState(false);
   const [prediction, setPrediction] = useState("");
   const [attempt1Notes, setAttempt1Notes] = useState("");
   const [attempt2Notes, setAttempt2Notes] = useState("");
@@ -156,11 +176,7 @@ export default function HumanPerformanceLab() {
   const [maxMovement, setMaxMovement] = useState(null);
   const [averageMovement, setAverageMovement] = useState(null);
   const [latestResult, setLatestResult] = useState(null);
-  const [savedAttempts, setSavedAttempts] = useState({
-    movement1: null,
-    movement2: null,
-    movement3: null,
-  });
+  const [savedAttempts, setSavedAttempts] = useState(createEmptySavedAttempts);
   const testIntervalRef = useRef(null);
   const testTimeoutRef = useRef(null);
   const accelerometerSubscriptionRef = useRef(null);
@@ -168,6 +184,7 @@ export default function HumanPerformanceLab() {
   const movementTotalRef = useRef(0);
   const maxMovementRef = useRef(0);
   const testStartedAtRef = useRef(null);
+  const lastVibrationAtRef = useRef(0);
   const latestMovementRef = useRef({
     current: null,
     max: null,
@@ -181,6 +198,8 @@ export default function HumanPerformanceLab() {
   const activeMovement =
     movements.find((movement) => movement.id === activeMovementId) ||
     movements[0];
+  const activeAttemptMode = getAttemptModeKey(feedbackEnabled);
+  const activeAttemptModeLabel = getAttemptModeLabel(feedbackEnabled);
   const liveScore = getSmoothnessScore(averageMovement);
   const displayResult =
     isTesting || averageMovement !== null
@@ -195,7 +214,9 @@ export default function HumanPerformanceLab() {
   const savedMovementResults = movements
     .map((movement) => ({
       ...movement,
-      result: savedAttempts[movement.id],
+      result:
+        savedAttempts[movement.id].withFeedback ||
+        savedAttempts[movement.id].withoutFeedback,
     }))
     .filter((movement) => movement.result);
   const smoothestMovement =
@@ -244,6 +265,8 @@ export default function HumanPerformanceLab() {
       if (accelerometerSubscriptionRef.current) {
         accelerometerSubscriptionRef.current.remove();
       }
+
+      Vibration.cancel();
     };
   }, []);
 
@@ -298,6 +321,7 @@ export default function HumanPerformanceLab() {
     clearTestTimers();
     stopAccelerometer();
     testStartedAtRef.current = null;
+    Vibration.cancel();
     setIsTesting(false);
     setSecondsRemaining(0);
   };
@@ -322,6 +346,9 @@ export default function HumanPerformanceLab() {
       duration,
       score,
       category: getSmoothnessCategory(latestMovement.average),
+      feedbackEnabled,
+      modeKey: activeAttemptMode,
+      modeLabel: activeAttemptModeLabel,
       status: statusLabel,
     };
   };
@@ -366,6 +393,15 @@ export default function HumanPerformanceLab() {
     setMaxMovement(nextMax);
     setAverageMovement(nextAverage);
     setCompletedSeconds(duration);
+
+    if (feedbackEnabled && movementMagnitude >= HIGH_MOVEMENT_THRESHOLD) {
+      const now = Date.now();
+
+      if (now - lastVibrationAtRef.current >= VIBRATION_COOLDOWN_MS) {
+        Vibration.vibrate(VIBRATION_PULSE_MS);
+        lastVibrationAtRef.current = now;
+      }
+    }
   };
 
   const startMovementTest = async () => {
@@ -373,6 +409,7 @@ export default function HumanPerformanceLab() {
     clearTestTimers();
     stopAccelerometer();
     resetLiveMovementStats();
+    lastVibrationAtRef.current = 0;
     setTestMessage("");
 
     try {
@@ -398,7 +435,9 @@ export default function HumanPerformanceLab() {
 
       setIsTesting(true);
       setSecondsRemaining(MOVEMENT_TEST_SECONDS);
-      setTestMessage(`${activeMovement.label} test running.`);
+      setTestMessage(
+        `${activeMovement.label} test running ${activeAttemptModeLabel.toLowerCase()}.`,
+      );
 
       testIntervalRef.current = setInterval(() => {
         const elapsed = getElapsedSeconds();
@@ -445,9 +484,14 @@ export default function HumanPerformanceLab() {
 
     setSavedAttempts((attempts) => ({
       ...attempts,
-      [activeMovement.id]: latestResult,
+      [activeMovement.id]: {
+        ...attempts[activeMovement.id],
+        [latestResult.modeKey]: latestResult,
+      },
     }));
-    setTestMessage(`${activeMovement.label} attempt saved locally.`);
+    setTestMessage(
+      `${activeMovement.label} ${latestResult.modeLabel.toLowerCase()} attempt saved locally.`,
+    );
   };
 
   const selectMovement = (movementId) => {
@@ -457,8 +501,34 @@ export default function HumanPerformanceLab() {
 
     setActiveMovementId(movementId);
     setTestMessage("");
-    setLatestResult(savedAttempts[movementId]);
-    const savedAttempt = savedAttempts[movementId];
+    const savedAttempt = savedAttempts[movementId][activeAttemptMode];
+    setLatestResult(savedAttempt);
+
+    if (savedAttempt) {
+      setCurrentMovement(savedAttempt.current);
+      setMaxMovement(savedAttempt.max);
+      setAverageMovement(savedAttempt.average);
+      setCompletedSeconds(savedAttempt.duration);
+    } else {
+      setCurrentMovement(null);
+      setMaxMovement(null);
+      setAverageMovement(null);
+      setCompletedSeconds(0);
+    }
+  };
+
+  const toggleFeedbackMode = () => {
+    if (isTesting) {
+      return;
+    }
+
+    const nextEnabled = !feedbackEnabled;
+    const nextMode = getAttemptModeKey(nextEnabled);
+    const savedAttempt = savedAttempts[activeMovement.id][nextMode];
+
+    setFeedbackEnabled(nextEnabled);
+    setTestMessage("");
+    setLatestResult(savedAttempt);
 
     if (savedAttempt) {
       setCurrentMovement(savedAttempt.current);
@@ -608,19 +678,42 @@ export default function HumanPerformanceLab() {
       <Text style={styles.comparisonTitle}>Movement Comparison</Text>
       <Text style={styles.comparisonHint}>
         Lower average movement usually means the movement was smoother and more
-        controlled.
+        controlled. Vibration feedback is a cue tool, not a sensor measurement.
       </Text>
 
       {movements.map((movement) => {
-        const result = savedAttempts[movement.id];
+        const withoutFeedback = savedAttempts[movement.id].withoutFeedback;
+        const withFeedback = savedAttempts[movement.id].withFeedback;
+        const improvement =
+          withoutFeedback && withFeedback
+            ? withoutFeedback.average - withFeedback.average
+            : null;
+        const improvementText =
+          improvement === null
+            ? "Save both attempts to compare feedback."
+            : improvement > 0.03
+              ? `Improved with feedback by ${formatMovement(improvement)}.`
+              : improvement < -0.03
+                ? `Average movement increased by ${formatMovement(Math.abs(improvement))}.`
+                : "About the same with and without feedback.";
 
         return (
           <View key={movement.id} style={styles.comparisonRow}>
             <Text style={styles.comparisonLabel}>{movement.label} score</Text>
             <Text style={styles.comparisonValue}>
-              {result
-                ? `${formatScore(result.score)} - ${result.category}`
+              Without feedback:{" "}
+              {withoutFeedback
+                ? `${formatScore(withoutFeedback.score)} - avg ${formatMovement(withoutFeedback.average)}`
                 : "Not saved yet"}
+            </Text>
+            <Text style={styles.comparisonValue}>
+              With feedback:{" "}
+              {withFeedback
+                ? `${formatScore(withFeedback.score)} - avg ${formatMovement(withFeedback.average)}`
+                : "Not saved yet"}
+            </Text>
+            <Text style={styles.feedbackImprovementText}>
+              {improvementText}
             </Text>
           </View>
         );
@@ -659,7 +752,10 @@ export default function HumanPerformanceLab() {
       <View style={styles.movementList}>
         {movements.map((movement) => {
           const isActive = movement.id === activeMovement.id;
-          const hasSavedAttempt = !!savedAttempts[movement.id];
+          const savedAttemptCount = [
+            savedAttempts[movement.id].withoutFeedback,
+            savedAttempts[movement.id].withFeedback,
+          ].filter(Boolean).length;
 
           return (
             <TouchableOpacity
@@ -681,8 +777,10 @@ export default function HumanPerformanceLab() {
                 >
                   {movement.label}
                 </Text>
-                {hasSavedAttempt ? (
-                  <Text style={styles.savedBadge}>Saved</Text>
+                {savedAttemptCount > 0 ? (
+                  <Text style={styles.savedBadge}>
+                    {savedAttemptCount}/2 Saved
+                  </Text>
                 ) : null}
               </View>
               <Text
@@ -713,6 +811,45 @@ export default function HumanPerformanceLab() {
         </Text>
       </View>
 
+      <View style={styles.feedbackBox}>
+        <View style={styles.feedbackHeader}>
+          <View style={styles.feedbackTextWrap}>
+            <Text style={styles.feedbackTitle}>Feedback tool</Text>
+            <Text style={styles.feedbackDescription}>
+              Short vibration pulses can remind students to slow down when
+              movement becomes unusually high. This is not a sensor measurement.
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.feedbackStatusDot,
+              feedbackEnabled && styles.feedbackStatusDotActive,
+            ]}
+          />
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.feedbackButton,
+            feedbackEnabled && styles.feedbackButtonActive,
+            isTesting && styles.disabledButton,
+          ]}
+          onPress={toggleFeedbackMode}
+          activeOpacity={0.86}
+          disabled={isTesting}
+        >
+          <Text
+            style={[
+              styles.feedbackButtonText,
+              feedbackEnabled && styles.feedbackButtonTextActive,
+            ]}
+          >
+            {feedbackEnabled
+              ? "Vibration Feedback Enabled"
+              : "Enable Vibration Feedback"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.livePanel}>
         <Text style={styles.liveTitle}>{activeMovement.title}</Text>
         <Text style={styles.liveSubtitle}>
@@ -720,7 +857,10 @@ export default function HumanPerformanceLab() {
             ? `${secondsRemaining}s remaining`
             : latestResult?.movementId === activeMovement.id
               ? latestResult.status
-              : "Ready to test"}
+              : `Ready to test ${activeAttemptModeLabel.toLowerCase()}`}
+        </Text>
+        <Text style={styles.modeLabel}>
+          Current attempt mode: {activeAttemptModeLabel}
         </Text>
 
         <View style={styles.metricGrid}>
@@ -1216,6 +1356,68 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "800",
   },
+  feedbackBox: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 16,
+  },
+  feedbackHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  feedbackTextWrap: {
+    flex: 1,
+  },
+  feedbackTitle: {
+    color: "#172218",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  feedbackDescription: {
+    color: "#5f6f52",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  feedbackStatusDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#cbd5c0",
+    marginTop: 3,
+  },
+  feedbackStatusDotActive: {
+    backgroundColor: "#2e7d32",
+  },
+  feedbackButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 54,
+    marginTop: 14,
+    paddingHorizontal: 14,
+  },
+  feedbackButtonActive: {
+    backgroundColor: "#172218",
+    borderColor: "#172218",
+  },
+  feedbackButtonText: {
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  feedbackButtonTextActive: {
+    color: "#f0ff75",
+  },
   livePanel: {
     backgroundColor: "#ffffff",
     borderColor: "#dfe8d8",
@@ -1236,6 +1438,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800",
     marginTop: 5,
+  },
+  modeLabel: {
+    alignSelf: "flex-start",
+    backgroundColor: "#e8f5e9",
+    borderRadius: 999,
+    color: "#244b2a",
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 10,
+    overflow: "hidden",
+    paddingHorizontal: 11,
+    paddingVertical: 7,
   },
   metricGrid: {
     flexDirection: "row",
@@ -1400,6 +1614,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800",
     marginTop: 4,
+  },
+  feedbackImprovementText: {
+    color: "#2e7d32",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "900",
+    marginTop: 6,
   },
   bestWorstGrid: {
     gap: 10,
