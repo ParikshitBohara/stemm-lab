@@ -9,7 +9,7 @@ const activities = [
   { title: "Sound Pollution Hunter", area: "Environment", accent: "#dbeafe", path: "/main/activity/sound" },
   { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
   { title: "Earthquake Structure", area: "Earth Science", accent: "#ede9fe", path: "/main/activity/earthquake" },
-  { title: "Human Performance Lab", area: "Biomechanics", accent: "#ffe4e6" },
+  { title: "Human Performance Lab", area: "Biomechanics", accent: "#ffe4e6", path: "/main/activity/human-performance" },
   { title: "Reaction Board", area: "Neuroscience", accent: "#ccfbf1", path: "/main/activity/reaction-board" },
   { title: "Breathing Pace Trainer", area: "Medical Science", accent: "#e0f2fe" },
 ];
