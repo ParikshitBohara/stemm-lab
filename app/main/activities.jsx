@@ -1,17 +1,52 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
-import TopBar from "../../components/TopBar";
+import { StatusBar } from "expo-status-bar";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import BottomNav from "../../components/BottomNav";
+import TopBar from "../../components/TopBar";
 
 const activities = [
-  { title: "Parachute Drop", area: "Engineering", accent: "#dcfce7", path: "/main/activity/parachute" },
-  { title: "Sound Pollution Hunter", area: "Environment", accent: "#dbeafe", path: "/main/activity/sound" },
+  {
+    title: "Parachute Drop",
+    area: "Engineering",
+    accent: "#dcfce7",
+    path: "/main/activity/parachute",
+  },
+  {
+    title: "Sound Pollution Hunter",
+    area: "Environment",
+    accent: "#dbeafe",
+    path: "/main/activity/sound",
+  },
+  {
+    title: "Earthquake Structure",
+    area: "Earth Science",
+    accent: "#ede9fe",
+    path: "/main/activity/earthquake",
+  },
+  {
+    title: "Human Performance Lab",
+    area: "Biomechanics",
+    accent: "#ffe4e6",
+    path: "/main/activity/human-performance",
+  },
+  {
+    title: "Reaction Board",
+    area: "Neuroscience",
+    accent: "#ccfbf1",
+    path: "/main/activity/reaction-board",
+  },
   { title: "Hand Fan Challenge", area: "Physics", accent: "#fef3c7" },
-  { title: "Earthquake Structure", area: "Earth Science", accent: "#ede9fe", path: "/main/activity/earthquake" },
-  { title: "Human Performance Lab", area: "Biomechanics", accent: "#ffe4e6", path: "/main/activity/human-performance" },
-  { title: "Reaction Board", area: "Neuroscience", accent: "#ccfbf1", path: "/main/activity/reaction-board" },
-  { title: "Breathing Pace Trainer", area: "Medical Science", accent: "#e0f2fe" },
+  {
+    title: "Breathing Pace Trainer",
+    area: "Medical Science",
+    accent: "#e0f2fe",
+  },
 ];
 
 export default function Activities() {
@@ -20,12 +55,17 @@ export default function Activities() {
   return (
     <View style={styles.wrapper}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         <TopBar title="Activities" eyebrow="Challenge Library" />
 
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>Choose a mission.</Text>
-          <Text style={styles.heroText}>Each task turns classroom materials into measurable STEMM data.</Text>
+          <Text style={styles.heroText}>
+            Each task turns classroom materials into measurable STEMM data.
+          </Text>
         </View>
 
         <View style={styles.list}>
@@ -34,10 +74,16 @@ export default function Activities() {
               key={activity.title}
               style={styles.card}
               activeOpacity={0.82}
-              onPress={activity.path ? () => router.push(activity.path) : undefined}
+              onPress={
+                activity.path ? () => router.push(activity.path) : undefined
+              }
             >
-              <View style={[styles.badge, { backgroundColor: activity.accent }]}>
-                <Text style={styles.badgeText}>{String(index + 1).padStart(2, "0")}</Text>
+              <View
+                style={[styles.badge, { backgroundColor: activity.accent }]}
+              >
+                <Text style={styles.badgeText}>
+                  {String(index + 1).padStart(2, "0")}
+                </Text>
               </View>
               <View style={styles.cardText}>
                 <Text style={styles.itemTitle}>{activity.title}</Text>
