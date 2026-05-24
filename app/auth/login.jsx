@@ -42,7 +42,7 @@ export default function Login() {
       
       // Navigate to home screen after successful login
       router.push("/main/home");
-    } catch (error) {
+    } catch (_error) {
     setError("Login failed. Please check your email and password.");
     }
   };

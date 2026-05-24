@@ -13,13 +13,21 @@ import {
 } from "react-native";
 import { Audio } from "expo-av";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import MapView, { Callout, Marker } from "react-native-maps";
 import TopBar from "../../../components/TopBar";
+import ActivityProgressHeader from "../../../components/activity/ActivityProgressHeader";
+import ActivityReviewCard from "../../../components/activity/ActivityReviewCard";
+import ActivityStepFooter from "../../../components/activity/ActivityStepFooter";
+import ValidationMessage from "../../../components/activity/ValidationMessage";
+import { ACTIVITY_POINTS } from "../../../constants/activityPoints";
+import { saveActivityResult } from "../../../firebase/saveActivityResult";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
 
 const MAX_MAPPED_READINGS = 3;
 const MAP_DELTA = 0.004;
+const SOUND_POINTS = ACTIVITY_POINTS.sound;
 
 const steps = [
   "Overview",
@@ -29,6 +37,7 @@ const steps = [
   "Results",
   "Map Loud and Quiet Zones",
   "Reflection",
+  "Review & Submit",
 ];
 
 const equipment = [
@@ -70,6 +79,7 @@ const estimateDbFromMetering = (metering) => {
 };
 
 export default function SoundPollutionHunter() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [prediction, setPrediction] = useState("");
   const [actionTested, setActionTested] = useState("");
@@ -85,8 +95,10 @@ export default function SoundPollutionHunter() {
   const [savedMeasurement, setSavedMeasurement] = useState("");
   const [permissionMessage, setPermissionMessage] = useState("");
   const [measurementError, setMeasurementError] = useState("");
-  const [activityMessage, setActivityMessage] = useState("");
-  const [activityError, setActivityError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [validationMessages, setValidationMessages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [locationPermissionStatus, setLocationPermissionStatus] = useState("");
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -100,7 +112,6 @@ export default function SoundPollutionHunter() {
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
-  const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
   const locationTag = {
     latitude,
     longitude,
@@ -134,6 +145,9 @@ export default function SoundPollutionHunter() {
         longitudeDelta: MAP_DELTA,
       }
     : null;
+  const numericEstimatedDb = Number.parseFloat(estimatedDbResult);
+  const hasValidEstimatedDb =
+    Number.isFinite(numericEstimatedDb) && numericEstimatedDb >= 0;
 
   useEffect(() => {
     return () => {
@@ -145,11 +159,25 @@ export default function SoundPollutionHunter() {
 
   const goBack = () => {
     Keyboard.dismiss();
+    setSuccessMessage("");
+    setValidationMessages([]);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
   const goNext = () => {
     Keyboard.dismiss();
+
+    if (currentStep === steps.length - 2) {
+      const nextValidationMessages = getReviewValidationMessages();
+
+      if (nextValidationMessages.length > 0) {
+        setValidationMessages(nextValidationMessages);
+        return;
+      }
+    }
+
+    setSuccessMessage("");
+    setValidationMessages([]);
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
@@ -228,6 +256,8 @@ export default function SoundPollutionHunter() {
     setEstimatedDbResult(savedValue);
     setSavedMeasurement(`${savedValue} dB estimate saved locally.`);
     setMeasurementError("");
+    setSuccessMessage("");
+    setValidationMessages([]);
   };
 
   const tagCurrentLocation = async () => {
@@ -237,6 +267,8 @@ export default function SoundPollutionHunter() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       setLocationPermissionStatus(permission.status);
+      setSuccessMessage("");
+      setValidationMessages([]);
 
       if (permission.status !== "granted") {
         setLocationError(
@@ -262,28 +294,127 @@ export default function SoundPollutionHunter() {
     }
   };
 
-  const saveActivity = () => {
-    Keyboard.dismiss();
-    setActivityError("");
-    setActivityMessage("");
+  const getReviewValidationMessages = () => {
+    const messages = [];
 
-    if (
-      !prediction.trim() ||
-      !actionTested.trim() ||
-      !estimatedDbResult.trim() ||
-      !reflection.trim()
-    ) {
-      setActivityError(
-        "Add your prediction, action tested, estimated dB, and reflection before saving.",
-      );
+    if (!prediction.trim()) {
+      messages.push("Add your prediction.");
+    }
+
+    if (!actionTested.trim()) {
+      messages.push("Add the action or activity tested.");
+    }
+
+    if (!hasValidEstimatedDb) {
+      messages.push("Save or enter a valid estimated dB result.");
+    }
+
+    if (!reflection.trim()) {
+      messages.push("Add your final reflection.");
+    }
+
+    return messages;
+  };
+
+  const handleSubmitActivity = async () => {
+    Keyboard.dismiss();
+
+    if (isSubmitting || hasSubmitted) {
       return;
     }
 
-    setActivityMessage("Sound Pollution Hunter activity saved for demo.");
-    sendActivitySavedNotification({
-      title: "STEMM Lab: Activity saved",
-      body: "Your activity result was saved for demo.",
-    }).catch(() => undefined);
+    setSuccessMessage("");
+
+    const nextValidationMessages = getReviewValidationMessages();
+
+    if (nextValidationMessages.length > 0) {
+      setValidationMessages(nextValidationMessages);
+      return;
+    }
+
+    setValidationMessages([]);
+    setIsSubmitting(true);
+
+    try {
+      await saveActivityResult({
+        activityId: "sound",
+        activityName: "Sound Pollution Hunter",
+        pointsAwarded: SOUND_POINTS,
+        resultSummary: {
+          prediction: prediction.trim(),
+          actionTested: actionTested.trim(),
+          estimatedDb: numericEstimatedDb,
+          manualLocationName: location.trim(),
+          gpsLocation: hasLocationTag
+            ? {
+                latitude: locationTag.latitude,
+                longitude: locationTag.longitude,
+                accuracy: locationTag.accuracy,
+                capturedAt: locationTag.capturedAt,
+              }
+            : null,
+          mappedReadings: mappedReadings.map((reading) => ({
+            actionTested: reading.actionTested,
+            estimatedDb: reading.estimatedDb,
+            locationName: reading.locationName,
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            capturedAt: reading.capturedAt,
+          })),
+          loudestMappedZone: loudestReading
+            ? {
+                actionTested: loudestReading.actionTested,
+                estimatedDb: loudestReading.estimatedDb,
+                locationName: loudestReading.locationName,
+              }
+            : null,
+          quietestMappedZone: quietestReading
+            ? {
+                actionTested: quietestReading.actionTested,
+                estimatedDb: quietestReading.estimatedDb,
+                locationName: quietestReading.locationName,
+              }
+            : null,
+          wasPredictionCorrect: wasPredictionCorrect.trim(),
+          notes: notes.trim(),
+          earMuffsAnswer: earMuffsAnswer.trim(),
+        },
+        reflection: reflection.trim(),
+        evidenceSummary: {
+          gpsTagged: hasLocationTag,
+          mappedReadingsCount: mappedReadings.length,
+          microphoneMeasurementRecorded: hasValidEstimatedDb,
+        },
+      });
+
+      setSuccessMessage(
+        `Activity submitted successfully. Your team earned ${SOUND_POINTS} points.`,
+      );
+      setHasSubmitted(true);
+
+      sendActivitySavedNotification({
+        title: "STEMM Lab: Activity saved",
+        body: "Your sound activity result was saved.",
+      }).catch(() => undefined);
+    } catch (error) {
+      console.log("Error saving sound activity:", error);
+      const helperMessages = [
+        "Please sign in before submitting an activity.",
+        "Set up your team before submitting an activity.",
+      ];
+      const submissionMessage = helperMessages.includes(error?.message)
+        ? error.message
+        : "Activity could not be submitted right now. Check your connection and try again.";
+
+      setValidationMessages([submissionMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueToActivities = () => {
+    router.replace("/main/activities");
   };
 
   const formatCoordinate = (value) =>
@@ -317,6 +448,8 @@ export default function SoundPollutionHunter() {
     Keyboard.dismiss();
     setMapMessage("");
     setMapError("");
+    setSuccessMessage("");
+    setValidationMessages([]);
 
     if (mappedReadings.length >= MAX_MAPPED_READINGS) {
       setMapError("Maximum of three classroom zones recorded.");
@@ -381,7 +514,11 @@ export default function SoundPollutionHunter() {
         placeholder={placeholder}
         placeholderTextColor="#8a9584"
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={(nextValue) => {
+          onChangeText(nextValue);
+          setSuccessMessage("");
+          setValidationMessages([]);
+        }}
         keyboardType={keyboardType || "default"}
         multiline={multiline}
         textAlignVertical={multiline ? "top" : "center"}
@@ -515,11 +652,11 @@ export default function SoundPollutionHunter() {
 
   const renderResults = () => (
     <View style={styles.card}>
-      <Text style={styles.cardLabel}>Results Placeholder</Text>
+      <Text style={styles.cardLabel}>Results</Text>
       <Text style={styles.cardTitle}>Record Your Observations</Text>
       <Text style={styles.cardText}>
-        In a later sprint, students can record measured decibel values here. For
-        now, use local form fields to describe what was tested and what changed.
+        Record the action you tested, the estimated decibel result, and any
+        classroom location notes your team needs for the final review.
       </Text>
       <View style={styles.form}>
         {renderInput({
@@ -737,7 +874,7 @@ export default function SoundPollutionHunter() {
 
   const renderReflection = () => (
     <View style={styles.card}>
-      <Text style={styles.cardLabel}>Reflection Placeholder</Text>
+      <Text style={styles.cardLabel}>Reflection</Text>
       <Text style={styles.cardTitle}>What Did You Notice?</Text>
       <Text style={styles.cardText}>
         Write a short reflection about the sound sources you found and how the
@@ -759,19 +896,58 @@ export default function SoundPollutionHunter() {
           multiline: true,
         })}
       </View>
-      {activityError ? (
-        <Text style={styles.errorText}>{activityError}</Text>
+    </View>
+  );
+
+  const renderReviewSubmit = () => (
+    <View style={styles.card}>
+      <Text style={styles.cardLabel}>Review & Submit</Text>
+      <Text style={styles.cardTitle}>Check Your Sound Activity</Text>
+      <Text style={styles.cardText}>
+        Review your sound measurement before submitting. Your team earns fixed
+        points only after the activity is saved to Firestore.
+      </Text>
+
+      <ActivityReviewCard
+        title="Activity Summary"
+        subtitle="Sound Pollution Hunter"
+        rows={[
+          { label: "Prediction", value: prediction },
+          { label: "Action tested", value: actionTested },
+          {
+            label: "Estimated dB result",
+            value: hasValidEstimatedDb
+              ? formatReadingDb(numericEstimatedDb)
+              : "",
+          },
+          { label: "Classroom/place name", value: location },
+          {
+            label: "GPS evidence",
+            value: hasLocationTag ? "Tagged" : "Not tagged",
+          },
+          {
+            label: "Mapped readings",
+            value: `${mappedReadings.length} of ${MAX_MAPPED_READINGS}`,
+          },
+          {
+            label: "Loudest mapped zone",
+            value: describeReading(loudestReading),
+          },
+          {
+            label: "Quietest mapped zone",
+            value: describeReading(quietestReading),
+          },
+          { label: "Reflection", value: reflection },
+          {
+            label: "Points to earn",
+            value: `${SOUND_POINTS} points`,
+          },
+        ]}
+      />
+
+      {successMessage ? (
+        <Text style={styles.activitySuccessText}>{successMessage}</Text>
       ) : null}
-      {activityMessage ? (
-        <Text style={styles.activitySuccessText}>{activityMessage}</Text>
-      ) : null}
-      <TouchableOpacity
-        style={styles.saveActivityButton}
-        onPress={saveActivity}
-        activeOpacity={0.86}
-      >
-        <Text style={styles.saveActivityButtonText}>Save Activity</Text>
-      </TouchableOpacity>
     </View>
   );
 
@@ -791,10 +967,27 @@ export default function SoundPollutionHunter() {
         return renderMapZones();
       case 6:
         return renderReflection();
+      case 7:
+        return renderReviewSubmit();
       default:
         return renderOverview();
     }
   };
+
+  const nextStepLabel = isLastStep
+    ? hasSubmitted
+      ? "Continue to Activities"
+      : isSubmitting
+        ? "Submitting..."
+        : "Submit Activity"
+    : currentStep === steps.length - 2
+      ? "Review Activity"
+      : "Next";
+  const handleFooterNext = isLastStep
+    ? hasSubmitted
+      ? handleContinueToActivities
+      : handleSubmitActivity
+    : goNext;
 
   return (
     <KeyboardAvoidingView
@@ -813,41 +1006,23 @@ export default function SoundPollutionHunter() {
           <View>
             <TopBar title="Sound Pollution Hunter" eyebrow="Environment + Physics" />
 
-            <View style={styles.progressCard}>
-              <Text style={styles.progressStep}>
-                Step {currentStep + 1} of {steps.length}
-              </Text>
-              <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: progressPercent }]} />
-              </View>
-            </View>
+            <ActivityProgressHeader
+              currentStep={currentStep}
+              totalSteps={steps.length}
+              title={steps[currentStep]}
+            />
+
+            <ValidationMessage items={validationMessages} />
 
             {renderStep()}
 
-            <View style={styles.navRow}>
-              {isFirstStep ? (
-                <View style={styles.navSpacer} />
-              ) : (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={goBack}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={[styles.nextButton, isLastStep && styles.doneButton]}
-                onPress={isLastStep ? Keyboard.dismiss : goNext}
-                activeOpacity={0.86}
-              >
-                <Text style={styles.nextButtonText}>
-                  {isLastStep ? "Done" : "Next"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <ActivityStepFooter
+              isFirstStep={isFirstStep || (isLastStep && hasSubmitted)}
+              onBack={goBack}
+              onNext={handleFooterNext}
+              nextLabel={nextStepLabel}
+              nextDisabled={isSubmitting}
+            />
           </View>
         </TouchableWithoutFeedback>
       </ScrollView>

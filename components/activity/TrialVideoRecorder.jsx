@@ -5,30 +5,87 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useEvent } from "expo";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { VideoView, useVideoPlayer } from "expo-video";
 
 const MAX_RECORDING_SECONDS = 20;
 
 function TrialVideoPreview({ trialName, uri }) {
-  const player = useVideoPlayer(uri ? { uri } : null, (videoPlayer) => {
+  const [previewError, setPreviewError] = useState("");
+  const player = useVideoPlayer(null, (videoPlayer) => {
     videoPlayer.loop = false;
   });
+  const { status, error } = useEvent(player, "statusChange", {
+    status: player.status,
+    error: null,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVideo = async () => {
+      setPreviewError("");
+
+      try {
+        if (!uri) {
+          await player.replaceAsync(null);
+          return;
+        }
+
+        await player.replaceAsync({ uri });
+      } catch (_error) {
+        if (isMounted) {
+          setPreviewError("This video could not be loaded for playback.");
+        }
+      }
+    };
+
+    loadVideo();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [player, uri]);
+
+  useEffect(() => {
+    if (status === "error") {
+      setPreviewError(
+        error?.message || "This video could not be loaded for playback.",
+      );
+    }
+  }, [error, status]);
 
   if (!uri) {
-    return null;
+    return (
+      <View style={styles.previewCard}>
+        <Text style={styles.previewTitle}>{trialName}</Text>
+        <View style={styles.emptyPreviewBox}>
+          <Text style={styles.emptyPreviewText}>
+            No video captured for this trial yet.
+          </Text>
+        </View>
+      </View>
+    );
   }
 
   return (
     <View style={styles.previewCard}>
       <Text style={styles.previewTitle}>{trialName}</Text>
-      <VideoView
-        style={styles.videoPreview}
-        player={player}
-        nativeControls
-        contentFit="contain"
-        allowsFullscreen
-      />
+      {previewError ? (
+        <View style={styles.emptyPreviewBox}>
+          <Text style={styles.emptyPreviewText}>{previewError}</Text>
+        </View>
+      ) : (
+        <VideoView
+          key={uri}
+          style={styles.videoPreview}
+          player={player}
+          nativeControls
+          contentFit="contain"
+          allowsFullscreen
+        />
+      )}
       <Text style={styles.localOnlyText}>
         Recorded on this device. Cloud upload is not connected yet.
       </Text>
@@ -540,6 +597,23 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     height: 230,
     overflow: "hidden",
+  },
+  emptyPreviewBox: {
+    alignItems: "center",
+    backgroundColor: "#243326",
+    borderColor: "#314333",
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 190,
+    padding: 18,
+  },
+  emptyPreviewText: {
+    color: "#dbe7d4",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 22,
+    textAlign: "center",
   },
   localOnlyText: {
     color: "#dbe7d4",

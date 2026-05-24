@@ -8,11 +8,18 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import ActivityProgressHeader from "../../../components/activity/ActivityProgressHeader";
+import ActivityReviewCard from "../../../components/activity/ActivityReviewCard";
+import ActivityStepFooter from "../../../components/activity/ActivityStepFooter";
+import TracingChallengeBoard from "../../../components/activity/TracingChallengeBoard";
+import ValidationMessage from "../../../components/activity/ValidationMessage";
+import { ACTIVITY_POINTS } from "../../../constants/activityPoints";
+import { saveActivityResult } from "../../../firebase/saveActivityResult";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
 
 const steps = [
@@ -23,7 +30,10 @@ const steps = [
   "Swap Hands",
   "Tracing Challenge",
   "Results & Reflection",
+  "Review & Submit",
 ];
+
+const REACTION_POINTS = ACTIVITY_POINTS["reaction-board"];
 
 const equipment = [
   "Mobile phone with STEMM Lab app",
@@ -38,7 +48,7 @@ const instructions = [
   "Place the phone or paper template flat on the table.",
   "Complete the tap reaction activity using your usual hand.",
   "Repeat the same task after swapping hands.",
-  "Try the tracing challenge slowly and accurately.",
+  "Follow the moving tracing target as accurately as possible.",
   "Compare speed, accuracy, and control across the three phases.",
   "Write a reflection about what helped or made the challenge harder.",
 ];
@@ -52,6 +62,7 @@ const getAverageTime = (attempts) =>
     : null;
 
 export default function ReactionBoardChallenge() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [tapReactionStatus, setTapReactionStatus] = useState("");
   const [tapAttempts, setTapAttempts] = useState([]);
@@ -65,13 +76,15 @@ export default function ReactionBoardChallenge() {
   const [isSwapWaiting, setIsSwapWaiting] = useState(false);
   const [isSwapTargetVisible, setIsSwapTargetVisible] = useState(false);
   const [swapMessage, setSwapMessage] = useState("");
-  const [tracingStatus, setTracingStatus] = useState("");
   const [prediction, setPrediction] = useState("");
   const [wereYouRight, setWereYouRight] = useState("");
   const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
+  const [tracingAttempts, setTracingAttempts] = useState([]);
   const [successMessage, setSuccessMessage] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [validationMessages, setValidationMessages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const reactionTimerRef = useRef(null);
   const swapTimerRef = useRef(null);
   const targetShownAtRef = useRef(null);
@@ -79,7 +92,6 @@ export default function ReactionBoardChallenge() {
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
-  const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
   const bestTapTime =
     tapAttempts.length > 0 ? Math.min(...tapAttempts) : null;
   const averageTapTime = getAverageTime(tapAttempts);
@@ -95,10 +107,32 @@ export default function ReactionBoardChallenge() {
       : nonDominantHandAttempts;
   const selectedHandLabel =
     swapHandMode === "dominant" ? "Dominant hand" : "Non-dominant hand";
-  const hasReactionResult =
-    tapAttempts.length > 0 ||
-    dominantHandAttempts.length > 0 ||
-    nonDominantHandAttempts.length > 0;
+  const swapAttemptCount =
+    dominantHandAttempts.length + nonDominantHandAttempts.length;
+  const attemptsCompletedCount =
+    tapAttempts.length + swapAttemptCount + tracingAttempts.length;
+  const bestTracingAccuracy =
+    tracingAttempts.length > 0
+      ? Math.max(
+          ...tracingAttempts.map((attempt) => attempt.accuracyPercentage),
+        )
+      : null;
+  const lowestTracingDelay =
+    tracingAttempts.length > 0
+      ? Math.min(...tracingAttempts.map((attempt) => attempt.averageDelayMs))
+      : null;
+  const handComparison =
+    dominantAverageTime !== null && nonDominantAverageTime !== null
+      ? {
+          dominantAverageTime,
+          nonDominantAverageTime,
+          differenceMs: swapDifference,
+          fasterHand:
+            dominantAverageTime <= nonDominantAverageTime
+              ? "Dominant hand"
+              : "Non-dominant hand",
+        }
+      : null;
 
   const clearReactionTimer = () => {
     if (reactionTimerRef.current) {
@@ -129,6 +163,8 @@ export default function ReactionBoardChallenge() {
     setIsTargetVisible(false);
     setIsSwapWaiting(false);
     setIsSwapTargetVisible(false);
+    setSuccessMessage("");
+    setValidationMessages([]);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
@@ -141,7 +177,17 @@ export default function ReactionBoardChallenge() {
     setIsSwapWaiting(false);
     setIsSwapTargetVisible(false);
     setSuccessMessage("");
-    setSaveError("");
+
+    if (currentStep === steps.length - 2) {
+      const nextValidationMessages = getReviewValidationMessages();
+
+      if (nextValidationMessages.length > 0) {
+        setValidationMessages(nextValidationMessages);
+        return;
+      }
+    }
+
+    setValidationMessages([]);
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
@@ -193,9 +239,11 @@ export default function ReactionBoardChallenge() {
     setIsTargetVisible(false);
     targetShownAtRef.current = null;
     setTapMessage(`Attempt ${attemptNumber} saved: ${reactionTime} ms`);
+    setSuccessMessage("");
+    setValidationMessages([]);
 
     if (nextAttempts.length === 3) {
-      setTapReactionStatus("Tap reaction completed for demo.");
+      setTapReactionStatus("Tap reaction phase completed.");
     }
   };
 
@@ -207,6 +255,8 @@ export default function ReactionBoardChallenge() {
     setIsTargetVisible(false);
     setTapReactionStatus("");
     setTapMessage("Attempts reset.");
+    setSuccessMessage("");
+    setValidationMessages([]);
   };
 
   const selectSwapHandMode = (mode) => {
@@ -280,12 +330,14 @@ export default function ReactionBoardChallenge() {
     setSwapMessage(
       `${selectedHandLabel} attempt ${attemptNumber} saved: ${reactionTime} ms`,
     );
+    setSuccessMessage("");
+    setValidationMessages([]);
 
     if (
       nextDominantAttempts.length === 3 &&
       nextNonDominantAttempts.length === 3
     ) {
-      setSwapHandsStatus("Swap hands completed for demo.");
+      setSwapHandsStatus("Swap hands phase completed.");
     }
   };
 
@@ -303,28 +355,131 @@ export default function ReactionBoardChallenge() {
     }
 
     setSwapMessage(`${selectedHandLabel} attempts reset.`);
+    setSuccessMessage("");
+    setValidationMessages([]);
   };
 
-  const saveActivity = () => {
-    Keyboard.dismiss();
-    setSuccessMessage("");
-    setSaveError("");
+  const getReviewValidationMessages = () => {
+    const messages = [];
 
     if (!prediction.trim()) {
-      setSaveError("Add your prediction before saving.");
+      messages.push("Add your prediction.");
+    }
+
+    if (tapAttempts.length === 0) {
+      messages.push("Complete at least one tap reaction attempt.");
+    }
+
+    if (swapAttemptCount === 0) {
+      messages.push("Complete at least one swap-hands attempt.");
+    }
+
+    if (tracingAttempts.length === 0) {
+      messages.push("Save at least one tracing challenge attempt.");
+    }
+
+    if (!reflection.trim()) {
+      messages.push("Add your final reflection.");
+    }
+
+    return messages;
+  };
+
+  const handleSubmitActivity = async () => {
+    Keyboard.dismiss();
+
+    if (isSubmitting || hasSubmitted) {
       return;
     }
 
-    if (!hasReactionResult) {
-      setSaveError("Record at least one reaction result before saving.");
+    setSuccessMessage("");
+
+    const nextValidationMessages = getReviewValidationMessages();
+
+    if (nextValidationMessages.length > 0) {
+      setValidationMessages(nextValidationMessages);
       return;
     }
 
-    setSuccessMessage("Reaction Board activity saved for demo.");
-    sendActivitySavedNotification({
-      title: "STEMM Lab: Activity saved",
-      body: "Your activity result was saved for demo.",
-    }).catch(() => undefined);
+    setValidationMessages([]);
+    setIsSubmitting(true);
+
+    try {
+      await saveActivityResult({
+        activityId: "reaction-board",
+        activityName: "Reaction Board Challenge",
+        pointsAwarded: REACTION_POINTS,
+        resultSummary: {
+          prediction: prediction.trim(),
+          tapReactionAttempts: tapAttempts.map((time, index) => ({
+            attemptNumber: index + 1,
+            reactionTimeMs: time,
+          })),
+          swapHandAttempts: {
+            dominant: dominantHandAttempts.map((time, index) => ({
+              attemptNumber: index + 1,
+              reactionTimeMs: time,
+            })),
+            nonDominant: nonDominantHandAttempts.map((time, index) => ({
+              attemptNumber: index + 1,
+              reactionTimeMs: time,
+            })),
+          },
+          averageResults: {
+            tapAverageTime: averageTapTime,
+            bestTapTime,
+            dominantAverageTime,
+            nonDominantAverageTime,
+          },
+          handComparison,
+          tracingAttempts: tracingAttempts.map((attempt) => ({
+            attemptNumber: attempt.attemptNumber,
+            accuracyPercentage: attempt.accuracyPercentage,
+            averageDelayMs: attempt.averageDelayMs,
+            completionTimeSeconds: attempt.completionTimeSeconds,
+          })),
+          bestTracingAccuracy,
+          lowestTracingDelay,
+          wereYouRight: wereYouRight.trim(),
+          surprises: surprises.trim(),
+        },
+        reflection: reflection.trim(),
+        evidenceSummary: {
+          tapReactionCompleted: tapAttempts.length > 0,
+          swapHandsCompleted: swapAttemptCount > 0,
+          tracingMeasured: tracingAttempts.length > 0,
+          tracingAttemptsCount: tracingAttempts.length,
+          attemptsCompletedCount,
+        },
+      });
+
+      setSuccessMessage(
+        `Activity submitted successfully. Your team earned ${REACTION_POINTS} points.`,
+      );
+      setHasSubmitted(true);
+
+      sendActivitySavedNotification({
+        title: "STEMM Lab: Activity saved",
+        body: "Your reaction board activity result was saved.",
+      }).catch(() => undefined);
+    } catch (error) {
+      console.log("Error saving reaction board activity:", error);
+      const helperMessages = [
+        "Please sign in before submitting an activity.",
+        "Set up your team before submitting an activity.",
+      ];
+      const submissionMessage = helperMessages.includes(error?.message)
+        ? error.message
+        : "Activity could not be submitted right now. Check your connection and try again.";
+
+      setValidationMessages([submissionMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueToActivities = () => {
+    router.replace("/main/activities");
   };
 
   const renderInput = ({
@@ -334,7 +489,7 @@ export default function ReactionBoardChallenge() {
     placeholder,
     multiline,
   }) => (
-    <View style={styles.field}>
+    <View style={styles.field} key={label}>
       <Text style={styles.inputLabel}>{label}</Text>
       <TextInput
         style={[styles.input, multiline && styles.textArea]}
@@ -344,6 +499,7 @@ export default function ReactionBoardChallenge() {
         onChangeText={(nextValue) => {
           onChangeText(nextValue);
           setSuccessMessage("");
+          setValidationMessages([]);
         }}
         multiline={multiline}
         textAlignVertical={multiline ? "top" : "center"}
@@ -404,29 +560,30 @@ export default function ReactionBoardChallenge() {
     </View>
   );
 
-  const renderPhasePlaceholder = ({
-    label,
-    title,
-    text,
-    status,
-    onPress,
-  }) => (
+  const handleSaveTracingAttempt = (attempt) => {
+    setTracingAttempts((attempts) => [...attempts, attempt]);
+    setSuccessMessage("");
+    setValidationMessages([]);
+  };
+
+  const handleTracingAttemptChange = () => {
+    setSuccessMessage("");
+    setValidationMessages([]);
+  };
+
+  const renderTracingChallenge = () => (
     <View style={styles.card}>
-      <Text style={styles.cardLabel}>{label}</Text>
-      <Text style={styles.cardTitle}>{title}</Text>
-      <Text style={styles.cardText}>{text}</Text>
-      <View style={styles.placeholderBox}>
-        <Text style={styles.placeholderText}>
-          {status || "Interactive version coming in a later sprint."}
-        </Text>
-      </View>
-      <TouchableOpacity
-        style={styles.secondaryAction}
-        onPress={onPress}
-        activeOpacity={0.86}
-      >
-        <Text style={styles.secondaryActionText}>Mark Demo Complete</Text>
-      </TouchableOpacity>
+      <Text style={styles.cardLabel}>Phase 3</Text>
+      <Text style={styles.cardTitle}>Tracing Challenge</Text>
+      <Text style={styles.cardText}>
+        Trace the moving target with your finger. The app estimates accuracy
+        and delay using your finger path compared with the moving target.
+      </Text>
+      <TracingChallengeBoard
+        attempts={tracingAttempts}
+        onSaveAttempt={handleSaveTracingAttempt}
+        onAttemptChange={handleTracingAttemptChange}
+      />
     </View>
   );
 
@@ -667,8 +824,8 @@ export default function ReactionBoardChallenge() {
       <Text style={styles.cardLabel}>Results & Reflection</Text>
       <Text style={styles.cardTitle}>Compare Your Performance</Text>
       <Text style={styles.cardText}>
-        Record what you noticed during each phase. This is local demo data only
-        and will not be saved to a backend.
+        Record what you noticed during the tap reaction and swap-hands phases
+        before reviewing the activity for submission.
       </Text>
 
       <View style={styles.summaryGrid}>
@@ -693,7 +850,9 @@ export default function ReactionBoardChallenge() {
         <View style={styles.summaryTile}>
           <Text style={styles.summaryLabel}>Tracing</Text>
           <Text style={styles.summaryValue}>
-            {tracingStatus ? "Complete" : "Not marked"}
+            {tracingAttempts.length > 0
+              ? `${tracingAttempts.length}/3 attempts`
+              : "Not started"}
           </Text>
         </View>
       </View>
@@ -727,20 +886,118 @@ export default function ReactionBoardChallenge() {
           multiline: true,
         })}
       </View>
-
-      {saveError ? <Text style={styles.errorText}>{saveError}</Text> : null}
-      {successMessage ? (
-        <Text style={styles.successText}>{successMessage}</Text>
-      ) : null}
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={saveActivity}
-        activeOpacity={0.86}
-      >
-        <Text style={styles.saveButtonText}>Save Activity</Text>
-      </TouchableOpacity>
     </View>
   );
+
+  const renderReviewSubmit = () => {
+    const tapAttemptSummary =
+      tapAttempts.length > 0
+        ? tapAttempts
+            .map((time, index) => `Attempt ${index + 1}: ${time} ms`)
+            .join("\n")
+        : "";
+    const dominantSummary =
+      dominantHandAttempts.length > 0
+        ? dominantHandAttempts
+            .map((time, index) => `Dominant ${index + 1}: ${time} ms`)
+            .join("\n")
+        : "";
+    const nonDominantSummary =
+      nonDominantHandAttempts.length > 0
+        ? nonDominantHandAttempts
+            .map((time, index) => `Non-dominant ${index + 1}: ${time} ms`)
+            .join("\n")
+        : "";
+    const handComparisonText = handComparison
+      ? `${handComparison.fasterHand} was faster by ${handComparison.differenceMs} ms.`
+      : "Record both dominant and non-dominant attempts to compare hands.";
+    const tracingSummary =
+      tracingAttempts.length > 0
+        ? tracingAttempts
+            .map(
+              (attempt) =>
+                `Attempt ${attempt.attemptNumber}: ${attempt.accuracyPercentage}% accuracy, ${attempt.averageDelayMs} ms delay, ${attempt.completionTimeSeconds}s`,
+            )
+            .join("\n")
+        : "";
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Review & Submit</Text>
+        <Text style={styles.cardTitle}>Check Your Reaction Board</Text>
+        <Text style={styles.cardText}>
+          Review the measured reaction attempts before submitting. Your team
+          earns fixed points only after the activity is saved to Firestore.
+        </Text>
+
+        <ActivityReviewCard
+          title="Activity Summary"
+          subtitle="Reaction Board Challenge"
+          rows={[
+            { label: "Prediction", value: prediction },
+            {
+              label: "Tap reaction attempts",
+              value: tapAttemptSummary,
+            },
+            {
+              label: "Swap-hands attempts",
+              value:
+                [dominantSummary, nonDominantSummary]
+                  .filter(Boolean)
+                  .join("\n") || "",
+            },
+            {
+              label: "Average reaction times",
+              value: [
+                `Tap: ${averageTapTime === null ? "--" : `${averageTapTime} ms`}`,
+                `Dominant: ${
+                  dominantAverageTime === null
+                    ? "--"
+                    : `${dominantAverageTime} ms`
+                }`,
+                `Non-dominant: ${
+                  nonDominantAverageTime === null
+                    ? "--"
+                    : `${nonDominantAverageTime} ms`
+                }`,
+              ].join("\n"),
+            },
+            {
+              label: "Hand comparison",
+              value: handComparisonText,
+            },
+            {
+              label: "Tracing attempts",
+              value: tracingSummary,
+            },
+            {
+              label: "Best tracing accuracy",
+              value:
+                bestTracingAccuracy === null
+                  ? ""
+                  : `${bestTracingAccuracy}%`,
+            },
+            {
+              label: "Lowest tracing delay",
+              value:
+                lowestTracingDelay === null
+                  ? ""
+                  : `${lowestTracingDelay} ms`,
+            },
+            { label: "Reflection", value: reflection },
+            {
+              label: "Points to earn",
+              value: `${REACTION_POINTS} points`,
+            },
+          ]}
+        />
+
+        {successMessage ? (
+          <Text style={styles.successText}>{successMessage}</Text>
+        ) : null}
+      </View>
+    );
+  };
 
   const renderStep = () => {
     switch (currentStep) {
@@ -755,20 +1012,30 @@ export default function ReactionBoardChallenge() {
       case 4:
         return renderSwapHands();
       case 5:
-        return renderPhasePlaceholder({
-          label: "Phase 3",
-          title: "Tracing Challenge Placeholder",
-          text:
-            "Trace a path slowly and accurately. Later, this can become an interactive accuracy challenge.",
-          status: tracingStatus,
-          onPress: () => setTracingStatus("Tracing challenge completed for demo."),
-        });
+        return renderTracingChallenge();
       case 6:
         return renderResults();
+      case 7:
+        return renderReviewSubmit();
       default:
         return renderOverview();
     }
   };
+
+  const nextStepLabel = isLastStep
+    ? hasSubmitted
+      ? "Continue to Activities"
+      : isSubmitting
+        ? "Submitting..."
+        : "Submit Activity"
+    : currentStep === steps.length - 2
+      ? "Review Activity"
+      : "Next";
+  const handleFooterNext = isLastStep
+    ? hasSubmitted
+      ? handleContinueToActivities
+      : handleSubmitActivity
+    : goNext;
 
   return (
     <KeyboardAvoidingView
@@ -783,50 +1050,30 @@ export default function ReactionBoardChallenge() {
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View>
-            <TopBar
-              title="Reaction Board Challenge"
-              eyebrow="Neuroscience + Human Performance"
-            />
+        <View>
+          <TopBar
+            title="Reaction Board Challenge"
+            eyebrow="Neuroscience + Human Performance"
+          />
 
-            <View style={styles.progressCard}>
-              <Text style={styles.progressStep}>
-                Step {currentStep + 1} of {steps.length}
-              </Text>
-              <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: progressPercent }]} />
-              </View>
-            </View>
+          <ActivityProgressHeader
+            currentStep={currentStep}
+            totalSteps={steps.length}
+            title={steps[currentStep]}
+          />
 
-            {renderStep()}
+          <ValidationMessage items={validationMessages} />
 
-            <View style={styles.navRow}>
-              {isFirstStep ? (
-                <View style={styles.navSpacer} />
-              ) : (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={goBack}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
-              )}
+          {renderStep()}
 
-              <TouchableOpacity
-                style={[styles.nextButton, isLastStep && styles.doneButton]}
-                onPress={isLastStep ? Keyboard.dismiss : goNext}
-                activeOpacity={0.86}
-              >
-                <Text style={styles.nextButtonText}>
-                  {isLastStep ? "Done" : "Next"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
+          <ActivityStepFooter
+            isFirstStep={isFirstStep || (isLastStep && hasSubmitted)}
+            onBack={goBack}
+            onNext={handleFooterNext}
+            nextLabel={nextStepLabel}
+            nextDisabled={isSubmitting}
+          />
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
