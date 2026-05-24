@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { Audio } from "expo-av";
+import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
@@ -81,11 +82,26 @@ export default function SoundPollutionHunter() {
   const [measurementError, setMeasurementError] = useState("");
   const [activityMessage, setActivityMessage] = useState("");
   const [activityError, setActivityError] = useState("");
+  const [locationPermissionStatus, setLocationPermissionStatus] = useState("");
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
+  const [capturedAt, setCapturedAt] = useState("");
+  const [locationError, setLocationError] = useState("");
   const recordingRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
   const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
+  const locationTag = {
+    latitude,
+    longitude,
+    accuracy,
+    capturedAt,
+    permissionStatus: locationPermissionStatus,
+  };
+  const hasLocationTag =
+    locationTag.latitude !== null && locationTag.longitude !== null;
 
   useEffect(() => {
     return () => {
@@ -182,6 +198,38 @@ export default function SoundPollutionHunter() {
     setMeasurementError("");
   };
 
+  const tagCurrentLocation = async () => {
+    Keyboard.dismiss();
+    setLocationError("");
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      setLocationPermissionStatus(permission.status);
+
+      if (permission.status !== "granted") {
+        setLocationError(
+          "Location permission is required to map where this classroom sound measurement was taken.",
+        );
+        return;
+      }
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      setLatitude(currentLocation.coords.latitude);
+      setLongitude(currentLocation.coords.longitude);
+      setAccuracy(currentLocation.coords.accuracy);
+      setCapturedAt(
+        new Date(currentLocation.timestamp || Date.now()).toISOString(),
+      );
+    } catch (_error) {
+      setLocationError(
+        "Unable to tag this location right now. Check device location settings and try again.",
+      );
+    }
+  };
+
   const saveActivity = () => {
     Keyboard.dismiss();
     setActivityError("");
@@ -205,6 +253,15 @@ export default function SoundPollutionHunter() {
       body: "Your activity result was saved for demo.",
     }).catch(() => undefined);
   };
+
+  const formatCoordinate = (value) =>
+    value === null ? "--" : value.toFixed(6);
+
+  const formatAccuracy = (value) =>
+    typeof value === "number" ? `${Math.round(value)} m` : "--";
+
+  const formatCapturedAt = (value) =>
+    value ? new Date(value).toLocaleString() : "--";
 
   const renderInput = ({
     label,
@@ -381,6 +438,54 @@ export default function SoundPollutionHunter() {
           onChangeText: setLocation,
           placeholder: "Example: Canteen entrance",
         })}
+        <View style={styles.locationCard}>
+          <Text style={styles.locationTitle}>GPS Location Tag</Text>
+          <Text style={styles.locationNote}>
+            Location is used only to tag where this classroom sound reading was
+            measured.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.locationButton}
+            onPress={tagCurrentLocation}
+            activeOpacity={0.86}
+          >
+            <Text style={styles.locationButtonText}>Tag Current Location</Text>
+          </TouchableOpacity>
+
+          {locationError ? (
+            <Text style={styles.errorText}>{locationError}</Text>
+          ) : null}
+
+          {hasLocationTag ? (
+            <View style={styles.locationResult}>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationLabel}>Latitude</Text>
+                <Text style={styles.locationValue}>
+                  {formatCoordinate(locationTag.latitude)}
+                </Text>
+              </View>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationLabel}>Longitude</Text>
+                <Text style={styles.locationValue}>
+                  {formatCoordinate(locationTag.longitude)}
+                </Text>
+              </View>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationLabel}>Accuracy</Text>
+                <Text style={styles.locationValue}>
+                  {formatAccuracy(locationTag.accuracy)}
+                </Text>
+              </View>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationLabel}>Captured</Text>
+                <Text style={styles.locationValue}>
+                  {formatCapturedAt(locationTag.capturedAt)}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
         {renderInput({
           label: "Estimated dB result",
           value: estimatedDbResult,
@@ -866,6 +971,66 @@ const styles = StyleSheet.create({
     color: "#5f6f52",
     fontSize: 15,
     fontWeight: "800",
+  },
+  locationCard: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 18,
+  },
+  locationTitle: {
+    color: "#172218",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  locationNote: {
+    color: "#5f6f52",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  locationButton: {
+    alignItems: "center",
+    backgroundColor: "#172218",
+    borderRadius: 18,
+    justifyContent: "center",
+    minHeight: 56,
+    marginTop: 14,
+    paddingHorizontal: 16,
+  },
+  locationButtonText: {
+    color: "#f0ff75",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  locationResult: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 18,
+    marginTop: 14,
+    padding: 14,
+  },
+  locationRow: {
+    borderTopColor: "#edf2e8",
+    borderTopWidth: 1,
+    paddingVertical: 10,
+  },
+  locationLabel: {
+    color: "#5f6f52",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  locationValue: {
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 4,
   },
   field: {
     gap: 9,
