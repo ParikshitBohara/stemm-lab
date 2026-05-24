@@ -11,9 +11,16 @@ import {
   Vibration,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Accelerometer } from "expo-sensors";
 import TopBar from "../../../components/TopBar";
+import ActivityProgressHeader from "../../../components/activity/ActivityProgressHeader";
+import ActivityReviewCard from "../../../components/activity/ActivityReviewCard";
+import ActivityStepFooter from "../../../components/activity/ActivityStepFooter";
+import ValidationMessage from "../../../components/activity/ValidationMessage";
+import { ACTIVITY_POINTS } from "../../../constants/activityPoints";
+import { saveActivityResult } from "../../../firebase/saveActivityResult";
 
 const MOVEMENT_TEST_SECONDS = 10;
 const SENSOR_UPDATE_MS = 120;
@@ -27,8 +34,11 @@ const steps = [
   "Instructions",
   "Movement Test",
   "Results",
-  "Reflection & Save",
+  "Reflection",
+  "Review & Submit",
 ];
+
+const HUMAN_PERFORMANCE_POINTS = ACTIVITY_POINTS["human-performance"];
 
 const equipment = [
   "Mobile phone with STEMM Lab app",
@@ -155,6 +165,7 @@ const getAttemptModeKey = (feedbackEnabled) =>
   feedbackEnabled ? "withFeedback" : "withoutFeedback";
 
 export default function HumanPerformanceLab() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [activeMovementId, setActiveMovementId] = useState("movement1");
   const [feedbackEnabled, setFeedbackEnabled] = useState(false);
@@ -166,7 +177,9 @@ export default function HumanPerformanceLab() {
   const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [validationMessages, setValidationMessages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [completedSeconds, setCompletedSeconds] = useState(0);
@@ -193,7 +206,6 @@ export default function HumanPerformanceLab() {
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
-  const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
   const activeMovement =
     movements.find((movement) => movement.id === activeMovementId) ||
     movements[0];
@@ -210,6 +222,49 @@ export default function HumanPerformanceLab() {
           category: getSmoothnessCategory(averageMovement),
         }
       : latestResult;
+  const completedAttempts = movements.flatMap((movement) =>
+    ["withoutFeedback", "withFeedback"]
+      .map((modeKey) => savedAttempts[movement.id][modeKey])
+      .filter(Boolean)
+      .map((attempt) => ({
+        ...attempt,
+        movementName: `${movement.label}: ${movement.title}`,
+      })),
+  );
+  const movementNames = Array.from(
+    new Set(completedAttempts.map((attempt) => attempt.movementName)),
+  );
+  const vibrationFeedbackUsed = completedAttempts.some(
+    (attempt) => attempt.feedbackEnabled,
+  );
+  const feedbackComparisons = movements
+    .map((movement) => {
+      const withoutFeedback = savedAttempts[movement.id].withoutFeedback;
+      const withFeedback = savedAttempts[movement.id].withFeedback;
+
+      if (!withoutFeedback || !withFeedback) {
+        return null;
+      }
+
+      const averageMovementImprovement =
+        withoutFeedback.average - withFeedback.average;
+
+      return {
+        movementId: movement.id,
+        movementName: `${movement.label}: ${movement.title}`,
+        withoutFeedbackAverage: withoutFeedback.average,
+        withFeedbackAverage: withFeedback.average,
+        averageMovementImprovement,
+        improvedWithFeedback: averageMovementImprovement > 0.03,
+      };
+    })
+    .filter(Boolean);
+  const smoothestAttempt =
+    completedAttempts.length > 0
+      ? completedAttempts.reduce((best, attempt) =>
+          attempt.average < best.average ? attempt : best,
+        )
+      : null;
   const savedMovementResults = movements
     .map((movement) => ({
       ...movement,
@@ -249,6 +304,26 @@ export default function HumanPerformanceLab() {
     attempt3Notes: setAttempt3Notes,
     wereYouRight: setWereYouRight,
     surprises: setSurprises,
+  };
+
+  const formatFeedbackComparison = (comparison) => {
+    if (!comparison) {
+      return "";
+    }
+
+    if (comparison.averageMovementImprovement > 0.03) {
+      return `${comparison.movementName}: improved with feedback by ${formatMovement(
+        comparison.averageMovementImprovement,
+      )}.`;
+    }
+
+    if (comparison.averageMovementImprovement < -0.03) {
+      return `${comparison.movementName}: average movement increased by ${formatMovement(
+        Math.abs(comparison.averageMovementImprovement),
+      )}.`;
+    }
+
+    return `${comparison.movementName}: about the same with and without feedback.`;
   };
 
   useEffect(() => {
@@ -489,8 +564,10 @@ export default function HumanPerformanceLab() {
       },
     }));
     setTestMessage(
-      `${activeMovement.label} ${latestResult.modeLabel.toLowerCase()} attempt saved locally.`,
+      `${activeMovement.label} ${latestResult.modeLabel.toLowerCase()} attempt saved for review.`,
     );
+    setSuccessMessage("");
+    setValidationMessages([]);
   };
 
   const selectMovement = (movementId) => {
@@ -548,7 +625,7 @@ export default function HumanPerformanceLab() {
       cleanupMovementTest();
     }
     setSuccessMessage("");
-    setSaveError("");
+    setValidationMessages([]);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
@@ -558,26 +635,147 @@ export default function HumanPerformanceLab() {
       cleanupMovementTest();
     }
     setSuccessMessage("");
-    setSaveError("");
+
+    if (currentStep === steps.length - 2) {
+      const nextValidationMessages = getReviewValidationMessages();
+
+      if (nextValidationMessages.length > 0) {
+        setValidationMessages(nextValidationMessages);
+        return;
+      }
+    }
+
+    setValidationMessages([]);
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
-  const saveActivity = () => {
-    Keyboard.dismiss();
-    setSuccessMessage("");
-    setSaveError("");
+  const getReviewValidationMessages = () => {
+    const messages = [];
 
     if (!prediction.trim()) {
-      setSaveError("Add your prediction before saving.");
-      return;
+      messages.push("Add your prediction.");
+    }
+
+    if (completedAttempts.length === 0) {
+      messages.push("Complete and save at least one movement attempt.");
     }
 
     if (!reflection.trim()) {
-      setSaveError("Add your reflection before saving.");
+      messages.push("Add your final reflection.");
+    }
+
+    return messages;
+  };
+
+  const handleSubmitActivity = async () => {
+    Keyboard.dismiss();
+
+    if (isSubmitting || hasSubmitted) {
       return;
     }
 
-    setSuccessMessage("Human Performance activity saved for demo.");
+    setSuccessMessage("");
+
+    const nextValidationMessages = getReviewValidationMessages();
+
+    if (nextValidationMessages.length > 0) {
+      setValidationMessages(nextValidationMessages);
+      return;
+    }
+
+    setValidationMessages([]);
+    setIsSubmitting(true);
+
+    try {
+      await saveActivityResult({
+        activityId: "human-performance",
+        activityName: "Human Performance Lab",
+        pointsAwarded: HUMAN_PERFORMANCE_POINTS,
+        resultSummary: {
+          prediction: prediction.trim(),
+          attemptsCompletedCount: completedAttempts.length,
+          movementNames,
+          completedAttempts: completedAttempts.map((attempt) => ({
+            movementId: attempt.movementId,
+            movementName: attempt.movementName,
+            movementTitle: attempt.movementTitle,
+            modeKey: attempt.modeKey,
+            modeLabel: attempt.modeLabel,
+            feedbackEnabled: attempt.feedbackEnabled,
+            averageMovement: attempt.average,
+            maximumMovement: attempt.max,
+            currentMovement: attempt.current,
+            durationSeconds: attempt.duration,
+            smoothnessScore: attempt.score,
+            smoothnessCategory: attempt.category,
+            status: attempt.status,
+          })),
+          averageMovementResults: completedAttempts.map((attempt) => ({
+            movementId: attempt.movementId,
+            movementName: attempt.movementName,
+            modeLabel: attempt.modeLabel,
+            averageMovement: attempt.average,
+            smoothnessScore: attempt.score,
+            smoothnessCategory: attempt.category,
+          })),
+          maximumMovementResults: completedAttempts.map((attempt) => ({
+            movementId: attempt.movementId,
+            movementName: attempt.movementName,
+            modeLabel: attempt.modeLabel,
+            maximumMovement: attempt.max,
+          })),
+          feedbackComparisons: feedbackComparisons.map((comparison) => ({
+            movementId: comparison.movementId,
+            movementName: comparison.movementName,
+            withoutFeedbackAverage: comparison.withoutFeedbackAverage,
+            withFeedbackAverage: comparison.withFeedbackAverage,
+            averageMovementImprovement:
+              comparison.averageMovementImprovement,
+            improvedWithFeedback: comparison.improvedWithFeedback,
+          })),
+          bestControlledMovement: smoothestAttempt
+            ? {
+                movementId: smoothestAttempt.movementId,
+                movementName: smoothestAttempt.movementName,
+                modeLabel: smoothestAttempt.modeLabel,
+                averageMovement: smoothestAttempt.average,
+                smoothnessScore: smoothestAttempt.score,
+                smoothnessCategory: smoothestAttempt.category,
+              }
+            : null,
+          wereYouRight: wereYouRight.trim(),
+          surprises: surprises.trim(),
+        },
+        reflection: reflection.trim(),
+        evidenceSummary: {
+          accelerometerMeasurementRecorded: completedAttempts.length > 0,
+          vibrationFeedbackUsed,
+          attemptsCompletedCount: completedAttempts.length,
+        },
+      });
+
+      setSuccessMessage(
+        `Activity submitted successfully. Your team earned ${HUMAN_PERFORMANCE_POINTS} points.`,
+      );
+      setHasSubmitted(true);
+    } catch (error) {
+      console.log("Error saving human performance activity:", error);
+      const helperMessages = [
+        "Please sign in before submitting an activity.",
+        "Set up your team before submitting an activity.",
+      ];
+      const submissionMessage = helperMessages.includes(error?.message)
+        ? error.message
+        : "Activity could not be submitted right now. Check your connection and try again.";
+
+      setValidationMessages([submissionMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueToActivities = () => {
+    router.replace("/main/activities");
   };
 
   const renderInput = ({
@@ -587,7 +785,7 @@ export default function HumanPerformanceLab() {
     placeholder,
     multiline,
   }) => (
-    <View style={styles.field}>
+    <View style={styles.field} key={label}>
       <Text style={styles.inputLabel}>{label}</Text>
       <TextInput
         style={[styles.input, multiline && styles.textArea]}
@@ -595,7 +793,7 @@ export default function HumanPerformanceLab() {
         onChangeText={(nextValue) => {
           onChangeText(nextValue);
           setSuccessMessage("");
-          setSaveError("");
+          setValidationMessages([]);
         }}
         placeholder={placeholder}
         placeholderTextColor="#8a9584"
@@ -948,8 +1146,8 @@ export default function HumanPerformanceLab() {
       <Text style={styles.cardLabel}>Results</Text>
       <Text style={styles.cardTitle}>Record Your Observations</Text>
       <Text style={styles.cardText}>
-        Use your saved movement results and team observations. All results stay
-        local in this screen for now.
+        Use your saved movement results and team observations to explain what
+        changed as your group tested control and feedback.
       </Text>
       <View style={styles.form}>
         {resultFields.map((field) =>
@@ -965,7 +1163,7 @@ export default function HumanPerformanceLab() {
 
   const renderReflection = () => (
     <View style={styles.card}>
-      <Text style={styles.cardLabel}>Reflection & Save</Text>
+      <Text style={styles.cardLabel}>Reflection</Text>
       <Text style={styles.cardTitle}>Team Reflection</Text>
       <Text style={styles.cardText}>
         Explain what your team learned about speed, smoothness and coordination.
@@ -979,21 +1177,83 @@ export default function HumanPerformanceLab() {
           multiline: true,
         })}
       </View>
-
-      {saveError ? <Text style={styles.errorText}>{saveError}</Text> : null}
-      {successMessage ? (
-        <Text style={styles.successText}>{successMessage}</Text>
-      ) : null}
-
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={saveActivity}
-        activeOpacity={0.86}
-      >
-        <Text style={styles.saveButtonText}>Save Activity</Text>
-      </TouchableOpacity>
     </View>
   );
+
+  const renderReviewSubmit = () => {
+    const attemptSummary =
+      completedAttempts.length > 0
+        ? completedAttempts
+            .map(
+              (attempt) =>
+                `${attempt.movementName} (${attempt.modeLabel}): score ${formatScore(
+                  attempt.score,
+                )}, avg ${formatMovement(attempt.average)}, max ${formatMovement(
+                  attempt.max,
+                )}`,
+            )
+            .join("\n")
+        : "";
+    const feedbackSummary =
+      feedbackComparisons.length > 0
+        ? feedbackComparisons.map(formatFeedbackComparison).join("\n")
+        : vibrationFeedbackUsed
+          ? "Feedback was used for at least one saved attempt."
+          : "No saved attempt used vibration feedback.";
+    const bestControlledText = smoothestAttempt
+      ? `${smoothestAttempt.movementName} (${smoothestAttempt.modeLabel}) - ${formatScore(
+          smoothestAttempt.score,
+        )}, avg ${formatMovement(smoothestAttempt.average)}`
+      : "Save an attempt to compare control.";
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Review & Submit</Text>
+        <Text style={styles.cardTitle}>Check Your Movement Lab</Text>
+        <Text style={styles.cardText}>
+          Review your saved movement data before submitting. Your team earns
+          fixed points only after the activity is saved to Firestore.
+        </Text>
+
+        <ActivityReviewCard
+          title="Activity Summary"
+          subtitle="Human Performance Lab"
+          rows={[
+            { label: "Prediction", value: prediction },
+            {
+              label: "Completed attempts",
+              value: `${completedAttempts.length}`,
+            },
+            {
+              label: "Completed movement(s)",
+              value: movementNames.join("\n"),
+            },
+            {
+              label: "Attempt results",
+              value: attemptSummary,
+            },
+            {
+              label: "Feedback comparison",
+              value: feedbackSummary,
+            },
+            {
+              label: "Best-controlled movement",
+              value: bestControlledText,
+            },
+            { label: "Reflection", value: reflection },
+            {
+              label: "Points to earn",
+              value: `${HUMAN_PERFORMANCE_POINTS} points`,
+            },
+          ]}
+        />
+
+        {successMessage ? (
+          <Text style={styles.successText}>{successMessage}</Text>
+        ) : null}
+      </View>
+    );
+  };
 
   const renderStep = () => {
     switch (currentStep) {
@@ -1009,10 +1269,27 @@ export default function HumanPerformanceLab() {
         return renderResults();
       case 5:
         return renderReflection();
+      case 6:
+        return renderReviewSubmit();
       default:
         return renderOverview();
     }
   };
+
+  const nextStepLabel = isLastStep
+    ? hasSubmitted
+      ? "Continue to Activities"
+      : isSubmitting
+        ? "Submitting..."
+        : "Submit Activity"
+    : currentStep === steps.length - 2
+      ? "Review Activity"
+      : "Next";
+  const handleFooterNext = isLastStep
+    ? hasSubmitted
+      ? handleContinueToActivities
+      : handleSubmitActivity
+    : goNext;
 
   return (
     <KeyboardAvoidingView
@@ -1033,43 +1310,23 @@ export default function HumanPerformanceLab() {
             eyebrow="Medical Science + Biomechanics"
           />
 
-          <View style={styles.progressCard}>
-            <Text style={styles.progressStep}>
-              Step {currentStep + 1} of {steps.length}
-            </Text>
-            <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: progressPercent }]} />
-            </View>
-          </View>
+          <ActivityProgressHeader
+            currentStep={currentStep}
+            totalSteps={steps.length}
+            title={steps[currentStep]}
+          />
+
+          <ValidationMessage items={validationMessages} />
 
           {renderStep()}
 
-          <View style={styles.navRow}>
-            {isFirstStep ? (
-              <View style={styles.navSpacer} />
-            ) : (
-              <TouchableOpacity
-                style={styles.backButton}
-                onPress={goBack}
-                activeOpacity={0.86}
-              >
-                <Text style={styles.backButtonText}>Back</Text>
-              </TouchableOpacity>
-            )}
-
-            {isLastStep ? (
-              <View style={styles.navSpacer} />
-            ) : (
-              <TouchableOpacity
-                style={styles.nextButton}
-                onPress={goNext}
-                activeOpacity={0.86}
-              >
-                <Text style={styles.nextButtonText}>Next</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          <ActivityStepFooter
+            isFirstStep={isFirstStep || (isLastStep && hasSubmitted)}
+            onBack={goBack}
+            onNext={handleFooterNext}
+            nextLabel={nextStepLabel}
+            nextDisabled={isSubmitting}
+          />
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
