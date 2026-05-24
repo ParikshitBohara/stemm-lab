@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import TrialVideoRecorder from "../../../components/activity/TrialVideoRecorder";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
 import { saveActivityResult } from "../../../firebase/saveActivityResult";
 const GRAVITY = 9.8;
@@ -47,6 +48,13 @@ const instructions = [
 ];
 
 const physicsConcepts = ["Gravity", "Drag", "Net Force", "G-Force"];
+
+const videoTrialSlots = [
+  { id: "baseline", label: "Baseline Drop - No Parachute" },
+  { id: "prototype1", label: "Prototype 1" },
+  { id: "prototype2", label: "Prototype 2" },
+  { id: "prototype3", label: "Prototype 3" },
+];
 
 const experimentInputs = [
   {
@@ -145,7 +153,7 @@ export default function ParachuteChallenge() {
   const [contactTime, setContactTime] = useState("");
   const [landingNotes, setLandingNotes] = useState("");
   const [reflection, setReflection] = useState("");
-  const [videoUri, setVideoUri] = useState("");
+  const [trialVideos, setTrialVideos] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
 
   const fieldValues = {
@@ -225,6 +233,9 @@ export default function ParachuteChallenge() {
   const progressPercent = `${((currentStep + 1) / wizardSteps.length) * 100}%`;
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === wizardSteps.length - 1;
+  const videosRecorded = videoTrialSlots.filter(
+    (trial) => trialVideos[trial.id],
+  ).length;
 
   const goBack = () => {
     Keyboard.dismiss();
@@ -235,6 +246,14 @@ export default function ParachuteChallenge() {
     Keyboard.dismiss();
     setSuccessMessage("");
     setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1));
+  };
+
+  const handleTrialVideoChange = (trialId, uri) => {
+    setTrialVideos((videos) => ({
+      ...videos,
+      [trialId]: uri,
+    }));
+    setSuccessMessage("");
   };
 
   
@@ -257,7 +276,12 @@ export default function ParachuteChallenge() {
             prototype3Time,
             landingNotes,
             contactTime,
-            videoCaptured: !!videoUri,
+            videoCaptured: videosRecorded > 0,
+            videosRecorded,
+            videoEvidence: videoTrialSlots.map((trial) => ({
+              trial: trial.label,
+              recorded: !!trialVideos[trial.id],
+            })),
       },
 
       reflection,
@@ -378,23 +402,16 @@ export default function ParachuteChallenge() {
   const renderVideoStep = () => (
     <View style={styles.stepCard}>
       <Text style={styles.cardLabel}>Video Evidence</Text>
-      <Text style={styles.cardTitle}>Capture Proof Later</Text>
+      <Text style={styles.cardTitle}>Record Each Drop</Text>
       <Text style={styles.cardText}>
-        Record or attach video evidence in a later sprint. For now, this button
-        only marks that video evidence was captured for the demo flow.
+        Record local video evidence for the baseline drop and each prototype.
+        These videos stay on this device and are not uploaded to Firestore.
       </Text>
-      <View style={styles.videoBox}>
-        <Text style={styles.videoStatus}>
-          {videoUri ? "Video captured for demo." : "No video evidence added yet."}
-        </Text>
-      </View>
-      <TouchableOpacity
-        style={styles.secondaryAction}
-        onPress={() => setVideoUri("demo-video-uri")}
-        activeOpacity={0.86}
-      >
-        <Text style={styles.secondaryActionText}>Add Video Evidence</Text>
-      </TouchableOpacity>
+      <TrialVideoRecorder
+        trialSlots={videoTrialSlots}
+        videos={trialVideos}
+        onVideoChange={handleTrialVideoChange}
+      />
     </View>
   );
 
