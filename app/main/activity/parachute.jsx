@@ -7,16 +7,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import ActivityProgressHeader from "../../../components/activity/ActivityProgressHeader";
+import ActivityReviewCard from "../../../components/activity/ActivityReviewCard";
+import ActivityStepFooter from "../../../components/activity/ActivityStepFooter";
 import TrialVideoRecorder from "../../../components/activity/TrialVideoRecorder";
+import ValidationMessage from "../../../components/activity/ValidationMessage";
+import { ACTIVITY_POINTS } from "../../../constants/activityPoints";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
 import { saveActivityResult } from "../../../firebase/saveActivityResult";
 const GRAVITY = 9.8;
+const PARACHUTE_POINTS = ACTIVITY_POINTS.parachute;
 
 const wizardSteps = [
   "Overview",
@@ -25,7 +31,8 @@ const wizardSteps = [
   "Video Evidence",
   "Experiment Results",
   "Physics Calculations",
-  "Reflection & Save",
+  "Reflection",
+  "Review & Submit",
 ];
 
 const equipment = [
@@ -120,6 +127,10 @@ const trialInputs = [
   { key: "prototype3Time", label: "Prototype 3" },
 ];
 
+const prototypeTrialInputs = trialInputs.filter(
+  (trial) => trial.key !== "baselineTime",
+);
+
 const parsePositiveNumber = (value) => {
   const trimmedValue = value.trim();
 
@@ -142,6 +153,7 @@ const formatNumber = (value, unit = "") => {
 };
 
 export default function ParachuteChallenge() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [prediction, setPrediction] = useState("");
   const [dropHeight, setDropHeight] = useState("");
@@ -155,6 +167,9 @@ export default function ParachuteChallenge() {
   const [reflection, setReflection] = useState("");
   const [trialVideos, setTrialVideos] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
+  const [validationMessages, setValidationMessages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const fieldValues = {
     prediction,
@@ -230,21 +245,40 @@ export default function ParachuteChallenge() {
         })
     : [];
 
-  const progressPercent = `${((currentStep + 1) / wizardSteps.length) * 100}%`;
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === wizardSteps.length - 1;
   const videosRecorded = videoTrialSlots.filter(
     (trial) => trialVideos[trial.id],
   ).length;
+  const baselineResult =
+    trialResults.find((result) => result.key === "baselineTime") || null;
+  const prototypeResults = trialResults.filter(
+    (result) => result.key !== "baselineTime",
+  );
+  const hasValidPrototypeTime = prototypeTrialInputs.some(
+    (trial) => numericValues[trial.key].status === "valid",
+  );
 
   const goBack = () => {
     Keyboard.dismiss();
+    setValidationMessages([]);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
   const goNext = () => {
     Keyboard.dismiss();
     setSuccessMessage("");
+
+    if (currentStep === wizardSteps.length - 2) {
+      const nextValidationMessages = getReviewValidationMessages();
+
+      if (nextValidationMessages.length > 0) {
+        setValidationMessages(nextValidationMessages);
+        return;
+      }
+    }
+
+    setValidationMessages([]);
     setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1));
   };
 
@@ -256,9 +290,54 @@ export default function ParachuteChallenge() {
     setSuccessMessage("");
   };
 
-  
+  const getReviewValidationMessages = () => {
+    const messages = [];
+
+    if (!prediction.trim()) {
+      messages.push("Add your prediction.");
+    }
+
+    if (numericValues.dropHeight.status !== "valid") {
+      messages.push("Add a positive drop height in metres.");
+    }
+
+    if (numericValues.toyMass.status !== "valid") {
+      messages.push("Add a positive toy mass in kilograms.");
+    }
+
+    if (numericValues.baselineTime.status !== "valid") {
+      messages.push("Add a positive baseline drop time.");
+    }
+
+    if (!hasValidPrototypeTime) {
+      messages.push("Add a positive time for at least one parachute prototype.");
+    }
+
+    if (!reflection.trim()) {
+      messages.push("Add your final reflection.");
+    }
+
+    return messages;
+  };
+
   const handleSaveExperiment = async () => {
     Keyboard.dismiss();
+
+    if (isSubmitting || hasSubmitted) {
+      return;
+    }
+
+    setSuccessMessage("");
+
+    const nextValidationMessages = getReviewValidationMessages();
+
+    if (nextValidationMessages.length > 0) {
+      setValidationMessages(nextValidationMessages);
+      return;
+    }
+
+    setValidationMessages([]);
+    setIsSubmitting(true);
 
     try {
         await saveActivityResult({
@@ -278,6 +357,7 @@ export default function ParachuteChallenge() {
             contactTime,
             videoCaptured: videosRecorded > 0,
             videosRecorded,
+            pointsAwarded: PARACHUTE_POINTS,
             videoEvidence: videoTrialSlots.map((trial) => ({
               trial: trial.label,
               recorded: !!trialVideos[trial.id],
@@ -285,10 +365,13 @@ export default function ParachuteChallenge() {
       },
 
       reflection,
-      score: trialResults.length,
+      score: PARACHUTE_POINTS,
     });
 
-    setSuccessMessage("Experiment successfully saved to Firestore.");
+    setSuccessMessage(
+      `Activity submitted successfully. Your team earned ${PARACHUTE_POINTS} points.`,
+    );
+    setHasSubmitted(true);
 
     sendActivitySavedNotification({
       title: "STEMM Lab: Activity saved",
@@ -296,9 +379,18 @@ export default function ParachuteChallenge() {
     }).catch(() => undefined);
   } catch (error) {
     console.log("Error saving experiment:", error);
-    setSuccessMessage("Failed to save experiment.");
+    setValidationMessages([
+      "Activity could not be submitted right now. Check your connection and try again.",
+    ]);
+  } finally {
+    setIsSubmitting(false);
   }
 };
+
+  const handleContinueToActivities = () => {
+    router.replace("/main/activities");
+  };
+
   const renderInput = ({
     label,
     value,
@@ -324,6 +416,7 @@ export default function ParachuteChallenge() {
           onChangeText={(nextValue) => {
             onChangeText(nextValue);
             setSuccessMessage("");
+            setValidationMessages([]);
           }}
           keyboardType={keyboardType || "default"}
           multiline={multiline}
@@ -523,7 +616,7 @@ export default function ParachuteChallenge() {
 
   const renderReflectionStep = () => (
     <View style={styles.stepCard}>
-      <Text style={styles.cardLabel}>Reflection & Save</Text>
+      <Text style={styles.cardLabel}>Reflection</Text>
       <Text style={styles.cardTitle}>What Did You Learn?</Text>
       <Text style={styles.cardText}>
         Explain which parachute worked best and what you would change next.
@@ -543,6 +636,92 @@ export default function ParachuteChallenge() {
     </View>
   );
 
+  const renderReviewStep = () => {
+    const prototypeSummary =
+      prototypeResults.length > 0
+        ? prototypeResults
+            .map((result) => `${result.label}: ${fieldValues[result.key]} s`)
+            .join("\n")
+        : "No prototype result entered";
+    const physicsRows =
+      trialResults.length > 0
+        ? trialResults.map((result) => ({
+            label: result.label,
+            value: [
+              `Velocity ${formatNumber(result.finalVelocity, " m/s")}`,
+              `Acceleration ${formatNumber(result.acceleration, " m/s2")}`,
+              `Drag ${formatNumber(result.dragForce, " N")}`,
+              `G-force ${
+                result.gForce === null
+                  ? "needs contact time"
+                  : formatNumber(result.gForce, " g")
+              }`,
+            ].join(" | "),
+          }))
+        : [
+            {
+              label: "Physics",
+              value: "Complete measurements to calculate physics results.",
+            },
+          ];
+
+    return (
+      <View style={styles.stepCard}>
+        <Text style={styles.cardLabel}>Review & Submit</Text>
+        <Text style={styles.cardTitle}>Check Your Activity</Text>
+        <Text style={styles.cardText}>
+          Review your answers before submitting. Your team earns fixed points
+          only after the activity is submitted.
+        </Text>
+
+        <ActivityReviewCard
+          title="Activity Summary"
+          subtitle="Parachute Drop Challenge"
+          rows={[
+            { label: "Prediction", value: prediction },
+            {
+              label: "Drop height",
+              value: dropHeight ? `${dropHeight} m` : "",
+            },
+            {
+              label: "Toy mass",
+              value: toyMass ? `${toyMass} kg` : "",
+            },
+            {
+              label: "Baseline result",
+              value: baselineResult
+                ? `${baselineTime} s`
+                : "No baseline time entered",
+            },
+            {
+              label: "Prototype result(s)",
+              value: prototypeSummary,
+            },
+            {
+              label: "Video evidence",
+              value: `${videosRecorded} of ${videoTrialSlots.length} videos recorded. Recommended, not required.`,
+            },
+            { label: "Reflection", value: reflection },
+            {
+              label: "Points to earn",
+              value: `${PARACHUTE_POINTS} points`,
+            },
+          ]}
+        />
+
+        <ActivityReviewCard
+          title="Physics Calculation Summary"
+          subtitle="Calculated from the measurements entered on this device."
+          rows={physicsRows}
+        />
+
+        {successMessage ? (
+          <Text style={styles.success}>{successMessage}</Text>
+        ) : null}
+      </View>
+    );
+  };
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
@@ -559,10 +738,27 @@ export default function ParachuteChallenge() {
         return renderPhysicsStep();
       case 6:
         return renderReflectionStep();
+      case 7:
+        return renderReviewStep();
       default:
         return renderOverviewStep();
     }
   };
+
+  const nextStepLabel = isLastStep
+    ? hasSubmitted
+      ? "Continue to Activities"
+      : isSubmitting
+      ? "Submitting..."
+      : "Submit Activity"
+    : currentStep === wizardSteps.length - 2
+      ? "Review Activity"
+      : "Next";
+  const handleFooterNext = isLastStep
+    ? hasSubmitted
+      ? handleContinueToActivities
+      : handleSaveExperiment
+    : goNext;
 
   return (
     <KeyboardAvoidingView
@@ -584,53 +780,23 @@ export default function ParachuteChallenge() {
               eyebrow="Engineering + Physics"
             />
 
-            <View style={styles.progressCard}>
-              <View style={styles.progressHeader}>
-                <Text style={styles.progressStep}>
-                  Step {currentStep + 1} of {wizardSteps.length}
-                </Text>
-                <Text style={styles.progressTitle}>
-                  {wizardSteps[currentStep]}
-                </Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: progressPercent }]} />
-              </View>
-            </View>
+            <ActivityProgressHeader
+              currentStep={currentStep}
+              totalSteps={wizardSteps.length}
+              title={wizardSteps[currentStep]}
+            />
+
+            <ValidationMessage items={validationMessages} />
 
             {renderStepContent()}
 
-            <View style={styles.navRow}>
-              {isFirstStep ? (
-                <View style={styles.navSpacer} />
-              ) : (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={goBack}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
-              )}
-
-              {isLastStep ? (
-                <TouchableOpacity
-                  style={styles.nextButton}
-                  onPress={handleSaveExperiment}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.nextButtonText}>Save Experiment</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.nextButton}
-                  onPress={goNext}
-                  activeOpacity={0.86}
-                >
-                  <Text style={styles.nextButtonText}>Next</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <ActivityStepFooter
+              isFirstStep={isFirstStep || (isLastStep && hasSubmitted)}
+              onBack={goBack}
+              onNext={handleFooterNext}
+              nextLabel={nextStepLabel}
+              nextDisabled={isSubmitting}
+            />
           </View>
         </TouchableWithoutFeedback>
       </ScrollView>
