@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Accelerometer,
-} from "expo-sensors";
+import { Accelerometer } from "expo-sensors";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -15,8 +13,15 @@ import {
   Vibration,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import TopBar from "../../../components/TopBar";
+import ActivityProgressHeader from "../../../components/activity/ActivityProgressHeader";
+import ActivityReviewCard from "../../../components/activity/ActivityReviewCard";
+import ActivityStepFooter from "../../../components/activity/ActivityStepFooter";
+import ValidationMessage from "../../../components/activity/ValidationMessage";
+import { ACTIVITY_POINTS } from "../../../constants/activityPoints";
+import { saveActivityResult } from "../../../firebase/saveActivityResult";
 
 const steps = [
   "Overview",
@@ -24,8 +29,11 @@ const steps = [
   "Instructions",
   "Vibration Test",
   "Results",
-  "Reflection & Save",
+  "Reflection",
+  "Review & Submit",
 ];
+
+const EARTHQUAKE_POINTS = ACTIVITY_POINTS.earthquake;
 
 const equipment = [
   "Cardboard",
@@ -112,6 +120,7 @@ const resultFields = [
 ];
 
 export default function EarthquakeResistantStructure() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [prediction, setPrediction] = useState("");
   const [design1Notes, setDesign1Notes] = useState("");
@@ -124,7 +133,9 @@ export default function EarthquakeResistantStructure() {
   const [surprises, setSurprises] = useState("");
   const [reflection, setReflection] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [validationMessages, setValidationMessages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [testMessage, setTestMessage] = useState("");
@@ -153,7 +164,6 @@ export default function EarthquakeResistantStructure() {
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
-  const progressPercent = `${((currentStep + 1) / steps.length) * 100}%`;
   const activeDesign =
     designOptions.find((design) => design.id === activeDesignId) ||
     designOptions[0];
@@ -279,6 +289,8 @@ export default function EarthquakeResistantStructure() {
       [activeDesign.id]: savedResult,
     }));
     fieldSetters[activeDesign.outcomeKey](savedText);
+    setSuccessMessage("");
+    setValidationMessages([]);
   };
 
   const handleAccelerometerUpdate = ({ x, y, z }) => {
@@ -386,6 +398,8 @@ export default function EarthquakeResistantStructure() {
     setIsTesting(false);
     setSecondsRemaining(0);
     setTestMessage("");
+    setSuccessMessage("");
+    setValidationMessages([]);
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
@@ -398,31 +412,136 @@ export default function EarthquakeResistantStructure() {
     setSecondsRemaining(0);
     setTestMessage("");
     setSuccessMessage("");
-    setSaveError("");
+
+    if (currentStep === steps.length - 2) {
+      const nextValidationMessages = getReviewValidationMessages();
+
+      if (nextValidationMessages.length > 0) {
+        setValidationMessages(nextValidationMessages);
+        return;
+      }
+    }
+
+    setValidationMessages([]);
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
-  const saveActivity = () => {
-    Keyboard.dismiss();
-    setSuccessMessage("");
-    setSaveError("");
+  const getReviewValidationMessages = () => {
+    const messages = [];
 
     if (!prediction.trim()) {
-      setSaveError("Add your prediction before saving.");
-      return;
+      messages.push("Add your prediction.");
     }
 
     if (testedDesigns.length === 0) {
-      setSaveError("Run at least one design test before saving.");
-      return;
+      messages.push("Run at least one structure design test.");
     }
 
     if (!reflection.trim()) {
-      setSaveError("Add your reflection before saving.");
+      messages.push("Add your final reflection.");
+    }
+
+    return messages;
+  };
+
+  const handleSubmitActivity = async () => {
+    Keyboard.dismiss();
+
+    if (isSubmitting || hasSubmitted) {
       return;
     }
 
-    setSuccessMessage("Earthquake activity saved for demo.");
+    setSuccessMessage("");
+
+    const nextValidationMessages = getReviewValidationMessages();
+
+    if (nextValidationMessages.length > 0) {
+      setValidationMessages(nextValidationMessages);
+      return;
+    }
+
+    setValidationMessages([]);
+    setIsSubmitting(true);
+
+    const testedDesignSummary = testedDesigns.map((design) => {
+      const notesKey = `${design.id}Notes`;
+
+      return {
+        designId: design.id,
+        designName: design.label,
+        status: design.result.status,
+        averageMovement: design.result.average,
+        maximumMovement: design.result.max,
+        approximateTiltAngle: design.result.tilt,
+        currentMovement: design.result.current,
+        notes: (fieldValues[notesKey] || "").trim(),
+        outcome: (fieldValues[design.outcomeKey] || "").trim(),
+      };
+    });
+
+    try {
+      await saveActivityResult({
+        activityId: "earthquake",
+        activityName: "Earthquake-Resistant Structure",
+        pointsAwarded: EARTHQUAKE_POINTS,
+        resultSummary: {
+          prediction: prediction.trim(),
+          designsTested: testedDesignSummary,
+          designsTestedCount: testedDesignSummary.length,
+          averageMovementResults: testedDesignSummary.map((design) => ({
+            designId: design.designId,
+            designName: design.designName,
+            averageMovement: design.averageMovement,
+          })),
+          maximumMovementResults: testedDesignSummary.map((design) => ({
+            designId: design.designId,
+            designName: design.designName,
+            maximumMovement: design.maximumMovement,
+          })),
+          approximateTiltResults: testedDesignSummary.map((design) => ({
+            designId: design.designId,
+            designName: design.designName,
+            approximateTiltAngle: design.approximateTiltAngle,
+          })),
+          bestDesign:
+            bestDesign && testedDesigns.length > 1
+              ? {
+                  designId: bestDesign.id,
+                  designName: bestDesign.label,
+                  averageMovement: bestDesign.result.average,
+                }
+              : null,
+        },
+        reflection: reflection.trim(),
+        evidenceSummary: {
+          accelerometerMeasurementRecorded: testedDesigns.length > 0,
+          vibrationTestCompleted: testedDesigns.length > 0,
+          designsTestedCount: testedDesigns.length,
+        },
+      });
+
+      setSuccessMessage(
+        `Activity submitted successfully. Your team earned ${EARTHQUAKE_POINTS} points.`,
+      );
+      setHasSubmitted(true);
+    } catch (error) {
+      console.log("Error saving earthquake activity:", error);
+      const helperMessages = [
+        "Please sign in before submitting an activity.",
+        "Set up your team before submitting an activity.",
+      ];
+      const submissionMessage = helperMessages.includes(error?.message)
+        ? error.message
+        : "Activity could not be submitted right now. Check your connection and try again.";
+
+      setValidationMessages([submissionMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueToActivities = () => {
+    router.replace("/main/activities");
   };
 
   const renderInput = ({
@@ -432,7 +551,7 @@ export default function EarthquakeResistantStructure() {
     placeholder,
     multiline,
   }) => (
-    <View style={styles.field}>
+    <View style={styles.field} key={label}>
       <Text style={styles.inputLabel}>{label}</Text>
       <TextInput
         style={[styles.input, multiline && styles.textArea]}
@@ -440,7 +559,7 @@ export default function EarthquakeResistantStructure() {
         onChangeText={(text) => {
           onChangeText(text);
           setSuccessMessage("");
-          setSaveError("");
+          setValidationMessages([]);
         }}
         placeholder={placeholder}
         placeholderTextColor="#8b9784"
@@ -502,7 +621,7 @@ export default function EarthquakeResistantStructure() {
 
   const renderVibrationTest = () => (
     <View style={styles.card}>
-      <Text style={styles.sectionKicker}>Device demo</Text>
+      <Text style={styles.sectionKicker}>Device test</Text>
       <Text style={styles.sectionTitle}>Vibration Test</Text>
       <Text style={styles.bodyText}>
         Start a 10-second vibration pattern to simulate shaking. Watch how your
@@ -545,7 +664,7 @@ export default function EarthquakeResistantStructure() {
         </Text>
         <Text style={styles.placeholderText}>
           {testMessage ||
-            "This demo uses phone vibration and accelerometer readings only. No storage or backend logic is active."}
+            "This test uses phone vibration and accelerometer readings to estimate how much the structure moves."}
         </Text>
       </View>
       <View style={styles.metricGrid}>
@@ -651,7 +770,7 @@ export default function EarthquakeResistantStructure() {
   const renderReflection = () => (
     <View style={styles.card}>
       <Text style={styles.sectionKicker}>Final thinking</Text>
-      <Text style={styles.sectionTitle}>Reflection & Save</Text>
+      <Text style={styles.sectionTitle}>Reflection</Text>
       {renderInput({
         label: "Reflection",
         value: reflection,
@@ -660,17 +779,70 @@ export default function EarthquakeResistantStructure() {
           "What design features helped your structure handle vibration?",
         multiline: true,
       })}
-      {saveError ? (
-        <Text style={styles.errorText}>{saveError}</Text>
-      ) : null}
-      {successMessage ? (
-        <Text style={styles.successText}>{successMessage}</Text>
-      ) : null}
-      <TouchableOpacity style={styles.saveButton} onPress={saveActivity}>
-        <Text style={styles.saveButtonText}>Save Activity</Text>
-      </TouchableOpacity>
     </View>
   );
+
+  const renderReviewSubmit = () => {
+    const testedDesignDetails =
+      testedDesigns.length > 0
+        ? testedDesigns
+            .map(
+              (design) =>
+                `${design.label}: avg ${formatMovement(
+                  design.result.average,
+                )}, max ${formatMovement(design.result.max)}, tilt ${formatTilt(
+                  design.result.tilt,
+                )}`,
+            )
+            .join("\n")
+        : "";
+    const bestDesignText =
+      bestDesign && testedDesigns.length > 1
+        ? `${bestDesign.label} - lowest average movement (${formatMovement(
+            bestDesign.result.average,
+          )})`
+        : "Test two or more designs to compare a best performer.";
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.sectionKicker}>Review & Submit</Text>
+        <Text style={styles.sectionTitle}>Check Your Earthquake Test</Text>
+        <Text style={styles.bodyText}>
+          Review your structure results before submitting. Your team earns
+          fixed points only after the activity is saved to Firestore.
+        </Text>
+
+        <ActivityReviewCard
+          title="Activity Summary"
+          subtitle="Earthquake-Resistant Structure"
+          rows={[
+            { label: "Prediction", value: prediction },
+            {
+              label: "Tested designs",
+              value: `${testedDesigns.length} of ${designOptions.length}`,
+            },
+            {
+              label: "Design details",
+              value: testedDesignDetails,
+            },
+            {
+              label: "Best-performing design",
+              value: bestDesignText,
+            },
+            { label: "Reflection", value: reflection },
+            {
+              label: "Points to earn",
+              value: `${EARTHQUAKE_POINTS} points`,
+            },
+          ]}
+        />
+
+        {successMessage ? (
+          <Text style={styles.successText}>{successMessage}</Text>
+        ) : null}
+      </View>
+    );
+  };
 
   const renderStep = () => {
     switch (currentStep) {
@@ -686,10 +858,27 @@ export default function EarthquakeResistantStructure() {
         return renderResults();
       case 5:
         return renderReflection();
+      case 6:
+        return renderReviewSubmit();
       default:
         return renderOverview();
     }
   };
+
+  const nextStepLabel = isLastStep
+    ? hasSubmitted
+      ? "Continue to Activities"
+      : isSubmitting
+        ? "Submitting..."
+        : "Submit Activity"
+    : currentStep === steps.length - 2
+      ? "Review Activity"
+      : "Next";
+  const handleFooterNext = isLastStep
+    ? hasSubmitted
+      ? handleContinueToActivities
+      : handleSubmitActivity
+    : goNext;
 
   return (
     <KeyboardAvoidingView
@@ -697,50 +886,40 @@ export default function EarthquakeResistantStructure() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <StatusBar style="dark" />
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <View style={styles.screen}>
-          <ScrollView
-            contentContainerStyle={styles.container}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View>
             <TopBar
               title="Earthquake-Resistant Structure"
               eyebrow="Engineering + Earth Science"
             />
 
-            <View style={styles.progressCard}>
-              <Text style={styles.progressMeta}>
-                Step {currentStep + 1} of {steps.length}
-              </Text>
-              <Text style={styles.progressTitle}>{steps[currentStep]}</Text>
-              <View style={styles.progressTrack}>
-                <View
-                  style={[styles.progressFill, { width: progressPercent }]}
-                />
-              </View>
-            </View>
+            <ActivityProgressHeader
+              currentStep={currentStep}
+              totalSteps={steps.length}
+              title={steps[currentStep]}
+            />
+
+            <ValidationMessage items={validationMessages} />
 
             {renderStep()}
 
-            <View style={styles.navRow}>
-              {!isFirstStep ? (
-                <TouchableOpacity style={styles.backButton} onPress={goBack}>
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.navSpacer} />
-              )}
-
-              {!isLastStep ? (
-                <TouchableOpacity style={styles.nextButton} onPress={goNext}>
-                  <Text style={styles.nextButtonText}>Next</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </ScrollView>
-        </View>
-      </TouchableWithoutFeedback>
+            <ActivityStepFooter
+              isFirstStep={isFirstStep || (isLastStep && hasSubmitted)}
+              onBack={goBack}
+              onNext={handleFooterNext}
+              nextLabel={nextStepLabel}
+              nextDisabled={isSubmitting}
+            />
+          </View>
+        </TouchableWithoutFeedback>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
