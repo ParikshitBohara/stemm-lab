@@ -14,8 +14,12 @@ import {
 import { Audio } from "expo-av";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
+import MapView, { Callout, Marker } from "react-native-maps";
 import TopBar from "../../../components/TopBar";
 import { sendActivitySavedNotification } from "../../../utils/notifications";
+
+const MAX_MAPPED_READINGS = 3;
+const MAP_DELTA = 0.004;
 
 const steps = [
   "Overview",
@@ -23,6 +27,7 @@ const steps = [
   "Instructions",
   "Sound Meter",
   "Results",
+  "Map Loud and Quiet Zones",
   "Reflection",
 ];
 
@@ -88,6 +93,9 @@ export default function SoundPollutionHunter() {
   const [accuracy, setAccuracy] = useState(null);
   const [capturedAt, setCapturedAt] = useState("");
   const [locationError, setLocationError] = useState("");
+  const [mappedReadings, setMappedReadings] = useState([]);
+  const [mapMessage, setMapMessage] = useState("");
+  const [mapError, setMapError] = useState("");
   const recordingRef = useRef(null);
 
   const isFirstStep = currentStep === 0;
@@ -102,6 +110,30 @@ export default function SoundPollutionHunter() {
   };
   const hasLocationTag =
     locationTag.latitude !== null && locationTag.longitude !== null;
+  const newestMappedReading =
+    mappedReadings.length > 0
+      ? mappedReadings[mappedReadings.length - 1]
+      : null;
+  const loudestReading =
+    mappedReadings.length > 0
+      ? mappedReadings.reduce((loudest, reading) =>
+          reading.estimatedDb > loudest.estimatedDb ? reading : loudest,
+        )
+      : null;
+  const quietestReading =
+    mappedReadings.length > 0
+      ? mappedReadings.reduce((quietest, reading) =>
+          reading.estimatedDb < quietest.estimatedDb ? reading : quietest,
+        )
+      : null;
+  const mapRegion = newestMappedReading
+    ? {
+        latitude: newestMappedReading.latitude,
+        longitude: newestMappedReading.longitude,
+        latitudeDelta: MAP_DELTA,
+        longitudeDelta: MAP_DELTA,
+      }
+    : null;
 
   useEffect(() => {
     return () => {
@@ -262,6 +294,77 @@ export default function SoundPollutionHunter() {
 
   const formatCapturedAt = (value) =>
     value ? new Date(value).toLocaleString() : "--";
+
+  const formatReadingDb = (value) =>
+    Number.isFinite(value) ? `${Math.round(value)} dB` : "--";
+
+  const getMarkerColor = (value) => {
+    if (value >= 70) {
+      return "#dc2626";
+    }
+
+    if (value <= 50) {
+      return "#2e7d32";
+    }
+
+    return "#f59e0b";
+  };
+
+  const describeReading = (reading) =>
+    reading ? `${reading.locationName}: ${formatReadingDb(reading.estimatedDb)}` : "--";
+
+  const addReadingToMap = () => {
+    Keyboard.dismiss();
+    setMapMessage("");
+    setMapError("");
+
+    if (mappedReadings.length >= MAX_MAPPED_READINGS) {
+      setMapError("Maximum of three classroom zones recorded.");
+      return;
+    }
+
+    if (!actionTested.trim()) {
+      setMapError("Add an action or activity name before mapping this reading.");
+      return;
+    }
+
+    if (!estimatedDbResult.trim()) {
+      setMapError("Add an estimated dB reading before mapping this zone.");
+      return;
+    }
+
+    const numericDb = Number.parseFloat(estimatedDbResult);
+
+    if (!Number.isFinite(numericDb)) {
+      setMapError("Enter a valid estimated dB number before mapping this zone.");
+      return;
+    }
+
+    if (!hasLocationTag) {
+      setMapError("Tag the current GPS location before mapping this reading.");
+      return;
+    }
+
+    const nextReading = {
+      id: `${Date.now()}-${mappedReadings.length + 1}`,
+      actionTested: actionTested.trim(),
+      estimatedDb: numericDb,
+      locationName: location.trim() || "Unnamed classroom zone",
+      latitude: locationTag.latitude,
+      longitude: locationTag.longitude,
+      accuracy: locationTag.accuracy,
+      capturedAt: locationTag.capturedAt || new Date().toISOString(),
+    };
+
+    const nextCount = mappedReadings.length + 1;
+
+    setMappedReadings((readings) => [...readings, nextReading]);
+    setMapMessage(
+      nextCount === MAX_MAPPED_READINGS
+        ? "Maximum of three classroom zones recorded."
+        : "Reading added to map. Tap Next to view loud and quiet zones.",
+    );
+  };
 
   const renderInput = ({
     label,
@@ -493,6 +596,32 @@ export default function SoundPollutionHunter() {
           placeholder: "Example: 65",
           keyboardType: "decimal-pad",
         })}
+        <View style={styles.mapActionCard}>
+          <Text style={styles.mapActionTitle}>Classroom Zone Map</Text>
+          <Text style={styles.mapActionText}>
+            Add up to three sound readings after you have an action, an
+            estimated dB result, and a tagged GPS location.
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.mapActionButton,
+              mappedReadings.length >= MAX_MAPPED_READINGS &&
+                styles.mapActionButtonDisabled,
+            ]}
+            onPress={addReadingToMap}
+            activeOpacity={0.86}
+            disabled={mappedReadings.length >= MAX_MAPPED_READINGS}
+          >
+            <Text style={styles.mapActionButtonText}>Add Reading to Map</Text>
+          </TouchableOpacity>
+          <Text style={styles.mapCountText}>
+            {mappedReadings.length} of {MAX_MAPPED_READINGS} zones recorded
+          </Text>
+          {mapError ? <Text style={styles.errorText}>{mapError}</Text> : null}
+          {mapMessage ? (
+            <Text style={styles.savedText}>{mapMessage}</Text>
+          ) : null}
+        </View>
         {renderInput({
           label: "Was prediction correct?",
           value: wasPredictionCorrect,
@@ -507,6 +636,102 @@ export default function SoundPollutionHunter() {
           multiline: true,
         })}
       </View>
+    </View>
+  );
+
+  const renderMapZones = () => (
+    <View style={styles.card}>
+      <Text style={styles.cardLabel}>Map Loud and Quiet Zones</Text>
+      <Text style={styles.cardTitle}>Classroom Sound Map</Text>
+      <Text style={styles.cardText}>
+        Compare the sound zones your team recorded. The newest GPS-tagged
+        reading stays centred on the map.
+      </Text>
+
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Mapped readings</Text>
+          <Text style={styles.summaryValue}>
+            {mappedReadings.length}/{MAX_MAPPED_READINGS}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Loudest zone</Text>
+          <Text style={styles.summaryValue}>
+            {describeReading(loudestReading)}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Quietest zone</Text>
+          <Text style={styles.summaryValue}>
+            {describeReading(quietestReading)}
+          </Text>
+        </View>
+      </View>
+
+      {mappedReadings.length === 0 || !mapRegion ? (
+        <Text style={styles.emptyMapText}>
+          Capture a location-tagged sound reading to display it on the map.
+        </Text>
+      ) : (
+        <>
+          <View style={styles.mapShell}>
+            <MapView
+              style={styles.map}
+              region={mapRegion}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+            >
+              {mappedReadings.map((reading) => (
+                <Marker
+                  key={reading.id}
+                  coordinate={{
+                    latitude: reading.latitude,
+                    longitude: reading.longitude,
+                  }}
+                  pinColor={getMarkerColor(reading.estimatedDb)}
+                >
+                  <Callout tooltip={false}>
+                    <View style={styles.callout}>
+                      <Text style={styles.calloutTitle}>
+                        {reading.actionTested}
+                      </Text>
+                      <Text style={styles.calloutText}>
+                        Estimated dB: {formatReadingDb(reading.estimatedDb)}
+                      </Text>
+                      <Text style={styles.calloutText}>
+                        Location: {reading.locationName}
+                      </Text>
+                    </View>
+                  </Callout>
+                </Marker>
+              ))}
+            </MapView>
+          </View>
+
+          <View style={styles.readingList}>
+            {mappedReadings.map((reading, index) => (
+              <View key={reading.id} style={styles.readingRow}>
+                <Text style={styles.readingBadge}>{index + 1}</Text>
+                <View style={styles.readingDetails}>
+                  <Text style={styles.readingTitle}>
+                    {reading.locationName}
+                  </Text>
+                  <Text style={styles.readingText}>
+                    {reading.actionTested} - {formatReadingDb(reading.estimatedDb)}
+                  </Text>
+                  <Text style={styles.readingMeta}>
+                    Accuracy {formatAccuracy(reading.accuracy)} -{" "}
+                    {formatCapturedAt(reading.capturedAt)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
     </View>
   );
 
@@ -563,6 +788,8 @@ export default function SoundPollutionHunter() {
       case 4:
         return renderResults();
       case 5:
+        return renderMapZones();
+      case 6:
         return renderReflection();
       default:
         return renderOverview();
@@ -1030,6 +1257,162 @@ const styles = StyleSheet.create({
     color: "#172218",
     fontSize: 15,
     fontWeight: "900",
+    marginTop: 4,
+  },
+  mapActionCard: {
+    backgroundColor: "#edf6ff",
+    borderColor: "#cfe7ff",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 18,
+  },
+  mapActionTitle: {
+    color: "#17456b",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  mapActionText: {
+    color: "#42667f",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  mapActionButton: {
+    alignItems: "center",
+    backgroundColor: "#1565c0",
+    borderRadius: 18,
+    justifyContent: "center",
+    minHeight: 56,
+    marginTop: 14,
+    paddingHorizontal: 16,
+  },
+  mapActionButtonDisabled: {
+    opacity: 0.48,
+  },
+  mapActionButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  mapCountText: {
+    color: "#17456b",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 10,
+    textTransform: "uppercase",
+  },
+  summaryCard: {
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 18,
+  },
+  summaryRow: {
+    borderTopColor: "#edf2e8",
+    borderTopWidth: 1,
+    paddingVertical: 11,
+  },
+  summaryLabel: {
+    color: "#5f6f52",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  summaryValue: {
+    color: "#172218",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22,
+    marginTop: 4,
+  },
+  emptyMapText: {
+    backgroundColor: "#edf6ff",
+    borderRadius: 18,
+    color: "#17456b",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 22,
+    marginTop: 18,
+    padding: 14,
+  },
+  mapShell: {
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 24,
+    height: 260,
+    marginTop: 18,
+    overflow: "hidden",
+  },
+  map: {
+    flex: 1,
+  },
+  callout: {
+    maxWidth: 220,
+    padding: 4,
+  },
+  calloutTitle: {
+    color: "#172218",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  calloutText: {
+    color: "#5f6f52",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  readingList: {
+    gap: 10,
+    marginTop: 16,
+  },
+  readingRow: {
+    alignItems: "flex-start",
+    backgroundColor: "#f8fbf4",
+    borderColor: "#dfe8d8",
+    borderWidth: 1,
+    borderRadius: 18,
+    flexDirection: "row",
+    padding: 13,
+  },
+  readingBadge: {
+    backgroundColor: "#172218",
+    borderRadius: 14,
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+    marginRight: 11,
+    minWidth: 34,
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlign: "center",
+  },
+  readingDetails: {
+    flex: 1,
+  },
+  readingTitle: {
+    color: "#172218",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  readingText: {
+    color: "#42667f",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  readingMeta: {
+    color: "#5f6f52",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
     marginTop: 4,
   },
   field: {
