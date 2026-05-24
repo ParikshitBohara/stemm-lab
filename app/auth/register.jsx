@@ -62,7 +62,7 @@ export default function Register() {
     try{
       await createUserWithEmailAndPassword(auth,email.trim(),password);
       router.replace("/main/team-setup");
-    } catch(error) {
+    } catch(_error) {
       setError("Registration failed. Email may already be in use.");
     }
   };
