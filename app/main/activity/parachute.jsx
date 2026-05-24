@@ -152,6 +152,14 @@ const formatNumber = (value, unit = "") => {
   return `${roundedValue}${unit}`;
 };
 
+const roundMeasurement = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return Number.parseFloat(value.toFixed(2));
+};
+
 export default function ParachuteChallenge() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
@@ -340,52 +348,81 @@ export default function ParachuteChallenge() {
     setIsSubmitting(true);
 
     try {
-        await saveActivityResult({
-          teamId: "demo-team",
-          teamName: "Gravity Squad",
-          activityName: "Parachute Drop Challenge",
+      const calculationSummary = trialResults.map((result) => ({
+        trialId: result.key,
+        trialName: result.label,
+        dropTimeSeconds: roundMeasurement(numericValues[result.key].value),
+        finalVelocityMetersPerSecond: roundMeasurement(result.finalVelocity),
+        accelerationMetersPerSecondSquared: roundMeasurement(
+          result.acceleration,
+        ),
+        netForceNewtons: roundMeasurement(result.netForce),
+        dragForceNewtons: roundMeasurement(result.dragForce),
+        gForce: roundMeasurement(result.gForce),
+      }));
 
-          resultData: {
-            prediction,
-            dropHeight,
-            toyMass,
-            baselineTime,
-            prototype1Time,
-            prototype2Time,
-            prototype3Time,
-            landingNotes,
-            contactTime,
-            videoCaptured: videosRecorded > 0,
-            videosRecorded,
-            pointsAwarded: PARACHUTE_POINTS,
-            videoEvidence: videoTrialSlots.map((trial) => ({
-              trial: trial.label,
-              recorded: !!trialVideos[trial.id],
-            })),
-      },
+      await saveActivityResult({
+        activityId: "parachute",
+        activityName: "Parachute Drop Challenge",
+        pointsAwarded: PARACHUTE_POINTS,
+        resultSummary: {
+          prediction: prediction.trim(),
+          baselineResult: baselineResult
+            ? {
+                trialId: baselineResult.key,
+                trialName: baselineResult.label,
+                dropTimeSeconds: roundMeasurement(
+                  numericValues.baselineTime.value,
+                ),
+              }
+            : null,
+          prototypeResults: prototypeResults.map((result) => ({
+            trialId: result.key,
+            trialName: result.label,
+            dropTimeSeconds: roundMeasurement(numericValues[result.key].value),
+          })),
+          dropHeightMeters: roundMeasurement(numericValues.dropHeight.value),
+          toyMassKilograms: roundMeasurement(numericValues.toyMass.value),
+          contactTimeSeconds: roundMeasurement(validContactTime),
+          landingNotes: landingNotes.trim(),
+          calculationSummary,
+        },
+        reflection: reflection.trim(),
+        evidenceSummary: {
+          videoCaptured: videosRecorded > 0,
+          videosRecorded,
+          videoTrialStatus: videoTrialSlots.map((trial) => ({
+            trialId: trial.id,
+            trialName: trial.label,
+            recorded: !!trialVideos[trial.id],
+          })),
+        },
+      });
 
-      reflection,
-      score: PARACHUTE_POINTS,
-    });
+      setSuccessMessage(
+        `Activity submitted successfully. Your team earned ${PARACHUTE_POINTS} points.`,
+      );
+      setHasSubmitted(true);
 
-    setSuccessMessage(
-      `Activity submitted successfully. Your team earned ${PARACHUTE_POINTS} points.`,
-    );
-    setHasSubmitted(true);
+      sendActivitySavedNotification({
+        title: "STEMM Lab: Activity saved",
+        body: "Your parachute activity result was saved.",
+      }).catch(() => undefined);
+    } catch (error) {
+      console.log("Error saving experiment:", error);
+      const helperMessages = [
+        "Please sign in before submitting an activity.",
+        "Set up your team before submitting an activity.",
+      ];
+      const submissionMessage = helperMessages.includes(error?.message)
+        ? error.message
+        : "Activity could not be submitted right now. Check your connection and try again.";
 
-    sendActivitySavedNotification({
-      title: "STEMM Lab: Activity saved",
-      body: "Your parachute activity result was saved.",
-    }).catch(() => undefined);
-  } catch (error) {
-    console.log("Error saving experiment:", error);
-    setValidationMessages([
-      "Activity could not be submitted right now. Check your connection and try again.",
-    ]);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+      setValidationMessages([submissionMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleContinueToActivities = () => {
     router.replace("/main/activities");
