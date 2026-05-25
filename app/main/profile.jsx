@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase/firebaseConfig";
+import {
+  getLocalResults,
+  saveLocalResult,
+  clearLocalResults,
+} from "../../storage/localResults";
 import {
   Image,
   ScrollView,
@@ -29,15 +34,42 @@ export default function Profile() {
   const [notificationMessage, setNotificationMessage] = useState("");
   const [notificationError, setNotificationError] = useState("");
   const [busyNotificationAction, setBusyNotificationAction] = useState("");
+  const [localResults, setLocalResults] = useState([]);
 
   const handleLogout = async () => {
-    try{
+    try {
       await signOut(auth);
-    
       router.replace("/auth/login");
-    } catch(error) {
+    } catch (error) {
       console.log("Logout error:", error);
     }
+  };
+
+  const loadLocalResults = () => {
+    const results = getLocalResults();
+    setLocalResults(results);
+  };
+
+  useEffect(() => {
+    loadLocalResults();
+  }, []);
+
+  const handleSaveLocalTest = () => {
+    saveLocalResult({
+      activityName: "SQLite Test Activity",
+      teamName: "Gravity Squad",
+      score: 5,
+      resultData: {
+        note: "This is a local offline test result.",
+      },
+    });
+
+    loadLocalResults();
+  };
+
+  const handleClearLocalResults = () => {
+    clearLocalResults();
+    loadLocalResults();
   };
 
   const runNotificationAction = async (actionName, action) => {
@@ -143,9 +175,7 @@ export default function Profile() {
               styles.notificationButton,
               busyNotificationAction && styles.notificationButtonDisabled,
             ]}
-            onPress={() =>
-              runNotificationAction("test", sendTestNotification)
-            }
+            onPress={() => runNotificationAction("test", sendTestNotification)}
             disabled={!!busyNotificationAction}
           >
             <Text style={styles.notificationButtonText}>
@@ -192,12 +222,52 @@ export default function Profile() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.settingsCard}>
+          <Text style={styles.sectionTitle}>SQLite Local Storage</Text>
+          <Text style={styles.notificationText}>
+            Local activity results are stored on this device using SQLite for
+            offline evidence.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={handleSaveLocalTest}
+          >
+            <Text style={styles.notificationButtonText}>
+              Save Local Test Result
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.cancelNotificationButton}
+            onPress={handleClearLocalResults}
+          >
+            <Text style={styles.cancelNotificationText}>
+              Clear Local Results
+            </Text>
+          </TouchableOpacity>
+
+          {localResults.length === 0 ? (
+            <Text style={styles.notificationText}>
+              No local results saved yet.
+            </Text>
+          ) : (
+            localResults.map((item) => (
+              <View key={item.id} style={styles.settingRow}>
+                <Text style={styles.settingLabel}>{item.activityName}</Text>
+                <Text style={styles.settingValue}>
+                  {item.teamName} — {item.score} points
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+
         <View style={styles.noteCard}>
           <Text style={styles.noteTitle}>Backend handoff note</Text>
           <Text style={styles.noteText}>
-            This screen is frontend-only for now. Login sessions, saved profile
-            data, and real logout logic can be connected later by the backend
-            member.
+            This screen now includes Firebase logout and SQLite local storage
+            evidence for saved activity results or offline drafts.
           </Text>
         </View>
 
