@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -257,9 +258,13 @@ export default function Leaderboard() {
         </TouchableOpacity>
 
         {loading ? (
-          <Text style={styles.stateText}>Loading leaderboard...</Text>
-        ) : null}
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color= "2e7d32" />
+            <Text style={styles.stateText}>Loading leaderboard...</Text>
 
+          </View>
+    
+        ) :null}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {!loading && !error && teams.length === 0 ? (
@@ -384,6 +389,11 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "900",
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
   },
   stateText: {
     backgroundColor: "#edf6ff",
