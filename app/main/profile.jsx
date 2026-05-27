@@ -23,7 +23,7 @@ import {
   scheduleActivityReminder,
   sendTestNotification,
 } from "../../utils/notifications";
-
+import * as Battery from "expo-battery";
 const settings = [
   { label: "Account Type", value: "Student prototype" },
   { label: "Privacy Mode", value: "Classroom only" },
@@ -35,7 +35,9 @@ export default function Profile() {
   const [notificationError, setNotificationError] = useState("");
   const [busyNotificationAction, setBusyNotificationAction] = useState("");
   const [localResults, setLocalResults] = useState([]);
-
+  const [batteryLevel, setBatteryLevel] = useState(null);
+  const [batteryState, setBatteryState] = useState(false);
+  const [lowPowerMode, setLowPowerMode] = useState(false);
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -52,6 +54,7 @@ export default function Profile() {
 
   useEffect(() => {
     loadLocalResults();
+    loadBatteryInfo();
   }, []);
 
   const handleSaveLocalTest = () => {
@@ -66,7 +69,15 @@ export default function Profile() {
 
     loadLocalResults();
   };
+  const loadBatteryInfo = async () => {
+    const level = await Battery.getBatteryLevelAsync();
+    const state = await Battery.getBatteryStateAsync();
+    const powerMode = await Battery.isLowPowerModeEnabledAsync();
 
+    setBatteryLevel(Math.round(level * 100));
+    setBatteryState(state);
+    setLowPowerMode(powerMode);
+  };
   const handleClearLocalResults = () => {
     clearLocalResults();
     loadLocalResults();
@@ -135,6 +146,54 @@ export default function Profile() {
             </View>
           ))}
         </View>
+        
+        <View style={styles.settingsCard}>
+          <Text style={styles.sectionTitle}> Battery Awareness</Text>
+          <Text style={styles.notificationText}>
+            STEMM Lab uses sensors, video and microphone features, so checking battery level helps students avoid losing activity data during experiments.
+          </Text>
+
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>Battery Level</Text>
+          <Text style={styles.settingValue}>
+            {batteryLevel !== null ? `${batteryLevel}%` : "Loading..."}
+          </Text>
+        </View>
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>Battery State</Text>
+          <Text style={styles.settingValue}>
+            {batteryState === Battery.BatteryState.CHARGING
+              ? "Charging"
+              : batteryState === Battery.BatteryState.FULL
+              ? "Full"
+              : batteryState === Battery.BatteryState.UNPLUGGED
+              ? "Unplugged"
+              : "Unknown"}
+          </Text>
+        </View>
+
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>Low Power Mode</Text>
+          <Text style={styles.settingValue}>
+            {lowPowerMode ? "Enabled" : "Disabled"}
+          </Text>
+        </View>
+
+        {batteryLevel !== null && batteryLevel < 25 ? (
+          <Text style={styles.notificationError}>
+            Battery is low. Charge your device before recording videos or using sensor
+            activities.
+          </Text>
+  ) : (
+          <Text style={styles.notificationSuccess}>
+            Battery level is suitable for STEMM activities.
+          </Text>
+  )}
+
+  <TouchableOpacity style={styles.notificationButton} onPress={loadBatteryInfo}>
+    <Text style={styles.notificationButtonText}>Refresh Battery Status</Text>
+  </TouchableOpacity>
+</View>
 
         <View style={styles.notificationsCard}>
           <Text style={styles.sectionTitle}>Notifications</Text>
